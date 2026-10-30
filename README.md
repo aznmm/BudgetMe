@@ -18,18 +18,21 @@ Settings (the gear in Wallet) has your paydays, 9 AM payment reminders, iCloud s
 You'll need a Mac with **Xcode 16 or later**. The app runs on iOS 17 or later.
 
 1. Clone the repo and open `BudgetMe.xcodeproj`.
-2. Select the **BudgetMe** target → **Signing & Capabilities** → choose your **Team**.
-3. If Xcode says the bundle ID is taken, change it (for example `com.yourname.BudgetMe`). Then update the iCloud container to match, as described below.
-4. Pick your iPhone or a simulator and press **Run**.
+2. Select the **BudgetMe** target → **Signing & Capabilities** → choose your **Team** (a free Apple ID works).
+3. If Xcode says the bundle ID is taken, change it to something unique, e.g. `com.yourname.BudgetMe`.
+4. Plug in your iPhone, select it as the run destination and press **Run**.
 5. On first launch, tap **Load My Cards from Notes**.
 
-### iCloud sync
+With a free Apple ID the app works for 7 days at a time. Run it from Xcode again to renew it; your data stays put.
 
-Syncing uses CloudKit, which requires a paid **Apple Developer Program** membership.
+### Turning on iCloud sync (paid developer account)
 
-- The container is `iCloud.com.aznmm.BudgetMe`. If you change the bundle ID, go to **Signing & Capabilities → iCloud** and select or create the matching container. Then update the same ID in `Config/BudgetMe.entitlements` and the `CloudKitContainer` key in `Config/Info.plist`.
-- To try the app without a paid account, remove the **iCloud** and **Push Notifications** capabilities and clear the `CloudKitContainer` value in `Config/Info.plist`. Your data then stays on that device only, and no code changes are needed.
-- Load the starter data on **one** device only. Your other devices receive it through iCloud.
+The project is set up for on-device storage so it builds with a free account. To sync across devices with a paid **Apple Developer Program** membership:
+
+1. In **Signing & Capabilities**, add **iCloud** (tick **CloudKit**, add container `iCloud.<your bundle ID>`) and **Push Notifications**. `Config/BudgetMe.entitlements` has the expected values for reference.
+2. Put the same container ID in the `CloudKitContainer` key of `Config/Info.plist` (used for the sync status in Settings).
+
+No code changes are needed: the app syncs automatically when the iCloud capability is present. Existing data on the phone uploads on first launch, so only load the starter data on one device.
 
 ## Project layout
 

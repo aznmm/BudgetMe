@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>CloudKitContainer</key>
-	<string>iCloud.com.aznmm.BudgetMe</string>
+	<string></string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>

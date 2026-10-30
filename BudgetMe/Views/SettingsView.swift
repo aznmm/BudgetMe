@@ -107,7 +107,7 @@ struct SettingsView: View {
             .confirmationDialog("Erase everything?", isPresented: $isConfirmingErase, titleVisibility: .visible) {
                 Button("Erase All Data", role: .destructive) { eraseAll() }
             } message: {
-                Text("Deletes all cards, credits and bills from every device signed in to your iCloud.")
+                Text("Deletes all cards, credits and bills. This can't be undone.")
             }
         }
     }

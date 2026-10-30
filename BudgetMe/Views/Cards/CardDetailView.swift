@@ -130,7 +130,7 @@ struct CardDetailView: View {
                 }
             }
         } message: {
-            Text("This removes it from all your synced devices.")
+            Text("This also removes its credits.")
         }
     }
 }
