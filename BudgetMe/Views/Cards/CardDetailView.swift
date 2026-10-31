@@ -35,6 +35,13 @@ struct CardDetailView: View {
         return "\(counted) \(names) \(unpriced.count == 1 ? "has" : "have") no value yet, so \(unpriced.count == 1 ? "it doesn't" : "they don't") count. Tap a credit above to add its value."
     }
 
+    /// "Usual 3× + 4× bonus", or why the bonus isn't counting.
+    private func rotatingCaption(_ earning: Earning) -> String {
+        let usual = (earning.multiplier - earning.rotatingExtra).multiplierText
+        guard earning.rotatingBonus != nil else { return "Cap reached, back to the usual \(usual)" }
+        return "Usual \(usual) + \(earning.rotatingExtra.multiplierText) bonus"
+    }
+
     private var rotatingSection: some View {
         let current = card.rotatingRates()
         let quarter = Cadence.quarterly.periodLabel(for: .now)
@@ -45,13 +52,22 @@ struct CardDetailView: View {
                     .foregroundStyle(.secondary)
             } else {
                 ForEach(current) { rate in
+                    // What the category earns with the bonus added on top of its usual rate.
+                    let earning = card.earning(for: rate.choice)
                     HStack(spacing: 12) {
                         Image(systemName: rate.symbol)
                             .foregroundStyle(.tint)
                             .frame(width: 24)
-                        Text(rate.choice.title)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(rate.choice.title)
+                            if let earning {
+                                Text(rotatingCaption(earning))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
                         Spacer()
-                        Text(rate.multiplier.multiplierText)
+                        Text((earning?.multiplier ?? rate.multiplier).multiplierText)
                             .font(.body.weight(.semibold).monospacedDigit())
                     }
                 }

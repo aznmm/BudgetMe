@@ -320,7 +320,7 @@ private struct WinnerCard: View {
 
     /// The winning rate is a rotating category you haven't marked as activated.
     private var needsActivation: Bool {
-        earning.details.first?.rotatingQuarter != nil && !card.isRotatingActivated()
+        earning.rotatingBonus != nil && !card.isRotatingActivated()
     }
 
     var body: some View {
@@ -362,6 +362,23 @@ private struct WinnerCard: View {
                         }
                     }
                 }
+                if let bonus = earning.rotatingBonus {
+                    VStack(alignment: .leading, spacing: 1) {
+                        HStack {
+                            Text("\(bonus.choice.title) rotating bonus")
+                            Spacer()
+                            Text("+\(earning.rotatingExtra.multiplierText)")
+                                .fontWeight(.semibold)
+                                .monospacedDigit()
+                        }
+                        .font(.subheadline)
+                        if let capText = bonus.capText {
+                            Text(capText)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
                 if earning.isAssumed {
                     Text("No everyday rate is saved for this card, so 1× is assumed. Add one when editing the card.")
                         .font(.footnote)
@@ -396,6 +413,7 @@ private struct RunnerUpRow: View {
     var showPercentBack = false
 
     private var subtitle: String {
+        if earning.rotatingBonus != nil { return "\(earning.details.first?.label ?? "Everyday rate") + rotating bonus" }
         if earning.isAssumed { return "Everyday rate (assumed)" }
         if earning.isBaseRate && earning.details.first?.isEverydayRate == true { return "Everyday rate" }
         return earning.details.first?.label ?? ""
