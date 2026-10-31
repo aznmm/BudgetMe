@@ -20,6 +20,8 @@ final class CreditCard {
     /// Free-form perks such as "Rental car coverage".
     var perks: [String] = []
     var notes: String = ""
+    /// Days of notice for this card's payment reminder, or nil to use the default from Settings.
+    var reminderDaysBefore: Int? = nil
     var sortOrder: Int = 0
     var createdAt: Date = Date()
 

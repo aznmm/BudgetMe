@@ -59,6 +59,26 @@ enum Cadence: String, CaseIterable, Identifiable, Codable {
         return calendar.date(byAdding: .month, value: months, to: start)
     }
 
+    /// Every period in `year`, in order: 12 months, 4 quarters, 2 halves or the whole year.
+    /// One-time credits aren't tied to a year, so they have none.
+    func periods(inYear year: Int, calendar: Calendar = .current) -> [CreditPeriod] {
+        guard let months = monthsPerPeriod else { return [] }
+        return stride(from: 1, through: 12, by: months).compactMap { month in
+            guard let start = calendar.date(from: DateComponents(year: year, month: month, day: 1)),
+                  let end = calendar.date(byAdding: .month, value: months, to: start)
+            else { return nil }
+            return CreditPeriod(key: periodKey(for: start, calendar: calendar), label: shortLabel(for: start, calendar: calendar), start: start, end: end)
+        }
+    }
+
+    /// A short label for the period containing `date`: "Mar", "Q2", "Jan – Jun", "2026".
+    private func shortLabel(for date: Date, calendar: Calendar) -> String {
+        switch self {
+        case .monthly: date.formatted(.dateTime.month(.abbreviated))
+        default: periodLabel(for: date, calendar: calendar)
+        }
+    }
+
     /// A human label for the current period: "November", "Q4", "Jul – Dec", "2026".
     func periodLabel(for date: Date, calendar: Calendar = .current) -> String {
         switch self {
@@ -75,6 +95,21 @@ enum Cadence: String, CaseIterable, Identifiable, Codable {
             return "One time"
         }
     }
+}
+
+/// One renewal period of a credit, such as March or Q2 of a year.
+struct CreditPeriod: Identifiable, Hashable {
+    /// Same format as `Cadence.periodKey(for:)`, so it matches what the Credits tab records.
+    let key: String
+    let label: String
+    let start: Date
+    /// The first moment of the next period.
+    let end: Date
+
+    var id: String { key }
+
+    func hasStarted(by date: Date = .now) -> Bool { start <= date }
+    func hasEnded(by date: Date = .now) -> Bool { end <= date }
 }
 
 extension Date {

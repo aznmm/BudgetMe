@@ -12,7 +12,11 @@ struct BillEditView: View {
     @State private var amountText = ""
     @State private var dueDay = 1
     @State private var symbol = "dollarsign.circle.fill"
+    @State private var hasCustomReminder = false
+    @State private var reminderDays = 2
     @State private var didLoad = false
+
+    @AppStorage(SettingsKey.reminderDaysBefore) private var defaultReminderDays = 2
 
     private let symbols = [
         "dollarsign.circle.fill", "chart.line.uptrend.xyaxis", "house.fill", "car.fill",
@@ -37,6 +41,8 @@ struct BillEditView: View {
                         ForEach(1...31, id: \.self) { Text("\($0.ordinal) of the month").tag($0) }
                     }
                 }
+
+                ReminderSection(isCustom: $hasCustomReminder, daysBefore: $reminderDays)
 
                 Section("Icon") {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 44), spacing: 12)], spacing: 12) {
@@ -86,7 +92,12 @@ struct BillEditView: View {
     private func load() {
         guard !didLoad else { return }
         didLoad = true
+        reminderDays = defaultReminderDays
         guard let bill else { return }
+        if let days = bill.reminderDaysBefore {
+            hasCustomReminder = true
+            reminderDays = days
+        }
         name = bill.name
         amountText = bill.amount.map { $0.formatted(.number.precision(.fractionLength(0...2)).grouping(.never)) } ?? ""
         dueDay = bill.dueDay
@@ -104,6 +115,7 @@ struct BillEditView: View {
         target.name = name.trimmingCharacters(in: .whitespaces)
         target.amount = parseAmount(amountText)
         target.dueDay = dueDay
+        target.reminderDaysBefore = hasCustomReminder ? reminderDays : nil
         target.symbol = symbol
         dismiss()
     }

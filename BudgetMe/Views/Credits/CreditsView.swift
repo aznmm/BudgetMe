@@ -45,6 +45,15 @@ struct CreditsView: View {
             }
             .navigationTitle("Credits")
             .toolbar {
+                if !benefits.isEmpty {
+                    ToolbarItem(placement: .topBarLeading) {
+                        NavigationLink {
+                            CreditHistoryView()
+                        } label: {
+                            Label("Credit History", systemImage: "calendar")
+                        }
+                    }
+                }
                 ToolbarItem(placement: .primaryAction) {
                     Button("Add Credit", systemImage: "plus") { isAdding = true }
                 }

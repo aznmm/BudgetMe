@@ -62,9 +62,33 @@ struct RewardRate: Codable, Hashable, Identifiable {
     var category: SpendCategory
     var multiplier: Double
     var note: String = ""
+    /// Only earned when booking through the card's travel portal (Chase Travel, Amex Travel…).
+    var viaPortal: Bool = false
 
     var label: String {
         note.isEmpty ? category.title : note
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, category, multiplier, note, viaPortal
+    }
+
+    /// Guesses from the details whether a rate saved before the portal switch existed is a portal rate.
+    static func looksLikePortal(_ note: String) -> Bool {
+        let text = note.lowercased()
+        return text.contains("portal") || (text.contains("via ") && text.contains("travel"))
+    }
+}
+
+extension RewardRate {
+    // In an extension so the memberwise initializer is kept.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        category = try container.decode(SpendCategory.self, forKey: .category)
+        multiplier = try container.decode(Double.self, forKey: .multiplier)
+        note = try container.decodeIfPresent(String.self, forKey: .note) ?? ""
+        viaPortal = try container.decodeIfPresent(Bool.self, forKey: .viaPortal) ?? RewardRate.looksLikePortal(note)
     }
 }
 
@@ -85,8 +109,9 @@ struct Earning {
 
 extension CreditCard {
     /// The best rate this card earns on `category`, falling back to its everything-else rate.
-    func earning(for category: SpendCategory) -> Earning? {
-        let rates = rewardRates
+    /// With `includePortal` off, rates that need a travel portal booking are left out.
+    func earning(for category: SpendCategory, includePortal: Bool = true) -> Earning? {
+        let rates = rewardRates.filter { includePortal || !$0.viaPortal }
         let matches = rates
             .filter { category.isCovered(by: $0.category) }
             .sorted { $0.multiplier > $1.multiplier }

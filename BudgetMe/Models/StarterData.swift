@@ -32,9 +32,9 @@ enum StarterData {
         let amex = card("Amex", .gold, due: 16, order: 3, rates: [
             RewardRate(category: .dining, multiplier: 4, note: "Restaurants worldwide"),
             RewardRate(category: .groceries, multiplier: 4, note: "U.S. supermarkets"),
-            RewardRate(category: .hotels, multiplier: 5, note: "Prepaid hotels via Amex Travel"),
+            RewardRate(category: .hotels, multiplier: 5, note: "Prepaid hotels via Amex Travel", viaPortal: true),
             RewardRate(category: .airfare, multiplier: 3, note: "Airfare"),
-            RewardRate(category: .carRental, multiplier: 2, note: "Car rental via Amex Travel"),
+            RewardRate(category: .carRental, multiplier: 2, note: "Car rental via Amex Travel", viaPortal: true),
         ])
         _ = card("BMO Mastercard", .ocean, due: 18, order: 4)
         let freedomRates = [
@@ -47,7 +47,7 @@ enum StarterData {
         })
         _ = card("Discover", .sunset, due: 24, order: 7)
         let sapphire = card("Chase Sapphire", .midnight, due: 27, order: 8, rates: [
-            RewardRate(category: .travel, multiplier: 5, note: "Via Chase Travel"),
+            RewardRate(category: .travel, multiplier: 5, note: "Via Chase Travel", viaPortal: true),
             RewardRate(category: .travel, multiplier: 2, note: "All other travel"),
             RewardRate(category: .dining, multiplier: 3, note: "Dining"),
             RewardRate(category: .groceries, multiplier: 3, note: "Online grocery"),

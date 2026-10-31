@@ -13,6 +13,9 @@ struct SettingsView: View {
     @AppStorage(SettingsKey.secondPayday) private var secondPayday = 15
     @AppStorage(SettingsKey.remindersEnabled) private var remindersEnabled = false
     @AppStorage(SettingsKey.reminderDaysBefore) private var reminderDaysBefore = 2
+    @AppStorage(SettingsKey.reminderMinuteOfDay) private var reminderMinuteOfDay = 540
+    @AppStorage(SettingsKey.remindOnDueDate) private var remindOnDueDate = false
+    @AppStorage(SettingsKey.appearance) private var appearance: AppAppearance = .automatic
 
     @State private var iCloudStatus: CKAccountStatus?
     @State private var isConfirmingStarter = false
@@ -44,16 +47,29 @@ struct SettingsView: View {
                             }
                         }
                     if remindersEnabled {
-                        Stepper(value: $reminderDaysBefore, in: 0...7) {
-                            Text(reminderDaysBefore == 0
-                                 ? "On the due date"
-                                 : "\(reminderDaysBefore) day\(reminderDaysBefore == 1 ? "" : "s") before")
+                        Stepper(value: $reminderDaysBefore, in: 0...ReminderPlan.maxDaysBefore) {
+                            Text(ReminderPlan.noticeText(reminderDaysBefore))
                         }
+                        DatePicker("Time", selection: reminderTime, displayedComponents: .hourAndMinute)
+                        Toggle("Also remind on the due date", isOn: $remindOnDueDate)
                     }
                 } header: {
                     Text("Reminders")
                 } footer: {
-                    Text("A 9 AM notification for anything still unpaid.")
+                    Text(remindersEnabled
+                         ? "Cards and bills use these unless you give them their own reminder when editing them. Nothing is sent once a payment is marked paid."
+                         : "A notification for anything still unpaid.")
+                }
+
+                Section {
+                    Picker("Appearance", selection: $appearance) {
+                        ForEach(AppAppearance.allCases) { Text($0.title).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                } header: {
+                    Text("Appearance")
+                } footer: {
+                    Text("Automatic matches your iPhone's Light or Dark setting.")
                 }
 
                 Section("iCloud") {
@@ -110,6 +126,19 @@ struct SettingsView: View {
                 Text("Deletes all cards, credits and bills. This can't be undone.")
             }
         }
+    }
+
+    /// The reminder time as a Date for the time picker, stored as minutes after midnight.
+    private var reminderTime: Binding<Date> {
+        Binding(
+            get: {
+                Calendar.current.date(bySettingHour: reminderMinuteOfDay / 60, minute: reminderMinuteOfDay % 60, second: 0, of: .now) ?? .now
+            },
+            set: { date in
+                let parts = Calendar.current.dateComponents([.hour, .minute], from: date)
+                reminderMinuteOfDay = (parts.hour ?? 9) * 60 + (parts.minute ?? 0)
+            }
+        )
     }
 
     private func eraseAll() {

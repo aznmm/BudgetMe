@@ -17,7 +17,11 @@ struct CardEditView: View {
     @State private var rates: [RewardRate] = []
     @State private var perks: [String] = []
     @State private var notes = ""
+    @State private var hasCustomReminder = false
+    @State private var reminderDays = 2
     @State private var didLoad = false
+
+    @AppStorage(SettingsKey.reminderDaysBefore) private var defaultReminderDays = 2
 
     var body: some View {
         NavigationStack {
@@ -77,6 +81,8 @@ struct CardEditView: View {
                     }
                 }
 
+                ReminderSection(isCustom: $hasCustomReminder, daysBefore: $reminderDays)
+
                 Section {
                     ForEach($rates) { $rate in
                         VStack(alignment: .leading, spacing: 8) {
@@ -101,6 +107,8 @@ struct CardEditView: View {
                             TextField("Details (e.g. Via Chase Travel)", text: $rate.note)
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
+                            Toggle("Through a travel portal", isOn: $rate.viaPortal)
+                                .font(.subheadline)
                         }
                         .padding(.vertical, 2)
                     }
@@ -114,7 +122,7 @@ struct CardEditView: View {
                 } header: {
                     Text("Earning")
                 } footer: {
-                    Text("Used by Best Card to rank your cards. Add an \u{201C}Everything Else\u{201D} rate for the card's base earn.")
+                    Text("Used by Best Card to rank your cards. Add an \u{201C}Everything Else\u{201D} rate for the card's base earn. Turn on \u{201C}Through a travel portal\u{201D} for rates you only get when booking through the card's portal, so Best Card can leave them out.")
                 }
 
                 Section("Perks") {
@@ -154,7 +162,12 @@ struct CardEditView: View {
     private func load() {
         guard !didLoad else { return }
         didLoad = true
+        reminderDays = defaultReminderDays
         guard let card else { return }
+        if let days = card.reminderDaysBefore {
+            hasCustomReminder = true
+            reminderDays = days
+        }
         name = card.name
         issuer = card.issuer
         lastFour = card.lastFour
@@ -178,6 +191,7 @@ struct CardEditView: View {
         target.lastFour = lastFour
         target.theme = theme
         target.dueDay = dueDay
+        target.reminderDaysBefore = hasCustomReminder ? reminderDays : nil
         target.rewardRates = rates
         target.perks = perks
             .map { $0.trimmingCharacters(in: .whitespaces) }

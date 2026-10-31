@@ -6,6 +6,8 @@ struct CardDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @AppStorage(SettingsKey.firstPayday) private var firstPayday = 1
     @AppStorage(SettingsKey.secondPayday) private var secondPayday = 15
+    @AppStorage(SettingsKey.remindersEnabled) private var remindersEnabled = false
+    @AppStorage(SettingsKey.reminderDaysBefore) private var defaultReminderDays = 2
 
     let card: CreditCard
 
@@ -45,6 +47,9 @@ struct CardDetailView: View {
                     Text(dueDate, format: .dateTime.weekday(.wide).month(.wide).day())
                 }
                 LabeledContent("Covered by", value: "Payday · \(PaydaySchedule([firstPayday, secondPayday]).payday(forDueDay: card.dueDay).ordinal)")
+                if remindersEnabled {
+                    LabeledContent("Reminder", value: ReminderPlan.noticeText(card.reminderDaysBefore ?? defaultReminderDays))
+                }
                 Toggle(isOn: Binding(
                     get: { isPaid },
                     set: { newValue in withAnimation { card.setPaid(newValue, monthKey: month.monthKey) } }
@@ -86,6 +91,13 @@ struct CardDetailView: View {
             Section {
                 ForEach(card.sortedBenefits) { benefit in
                     BenefitRow(benefit: benefit, onEdit: { editingCredit = $0 })
+                }
+                if card.sortedBenefits.contains(where: { $0.cadence != .once }) {
+                    NavigationLink {
+                        CreditHistoryView(card: card)
+                    } label: {
+                        Label("Used This Year", systemImage: "calendar")
+                    }
                 }
                 Button("Add Credit", systemImage: "plus.circle.fill") { isAddingCredit = true }
             } header: {

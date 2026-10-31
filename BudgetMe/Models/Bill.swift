@@ -10,6 +10,8 @@ final class Bill {
     var symbol: String = "dollarsign.circle.fill"
     /// Month keys ("2026-10") in which this bill was marked paid.
     var paidPeriods: [String] = []
+    /// Days of notice for this bill's payment reminder, or nil to use the default from Settings.
+    var reminderDaysBefore: Int? = nil
     var createdAt: Date = Date()
 
     init(name: String, amount: Double? = nil, dueDay: Int, symbol: String = "dollarsign.circle.fill") {

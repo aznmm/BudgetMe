@@ -31,11 +31,18 @@ final class Benefit {
     }
 
     func isUsed(on date: Date = .now) -> Bool {
-        usedPeriods.contains(cadence.periodKey(for: date))
+        isUsed(periodKey: cadence.periodKey(for: date))
     }
 
     func setUsed(_ used: Bool, on date: Date = .now) {
-        let key = cadence.periodKey(for: date)
+        setUsed(used, periodKey: cadence.periodKey(for: date))
+    }
+
+    func isUsed(periodKey key: String) -> Bool {
+        usedPeriods.contains(key)
+    }
+
+    func setUsed(_ used: Bool, periodKey key: String) {
         if used {
             if !usedPeriods.contains(key) { usedPeriods.append(key) }
         } else {

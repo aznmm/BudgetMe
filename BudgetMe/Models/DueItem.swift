@@ -87,6 +87,10 @@ enum SettingsKey {
     static let secondPayday = "secondPayday"
     static let remindersEnabled = "remindersEnabled"
     static let reminderDaysBefore = "reminderDaysBefore"
+    static let reminderMinuteOfDay = "reminderMinuteOfDay"
+    static let remindOnDueDate = "remindOnDueDate"
+    static let appearance = "appearance"
+    static let includePortalRates = "includePortalRates"
 }
 
 extension Int {

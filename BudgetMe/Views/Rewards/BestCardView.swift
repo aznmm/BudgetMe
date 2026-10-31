@@ -5,6 +5,7 @@ import SwiftData
 struct BestCardView: View {
     @Query(sort: \CreditCard.sortOrder) private var cards: [CreditCard]
     @State private var category: SpendCategory = .dining
+    @AppStorage(SettingsKey.includePortalRates) private var includePortal = true
 
     private struct Ranked: Identifiable {
         let card: CreditCard
@@ -14,7 +15,7 @@ struct BestCardView: View {
 
     private var ranked: [Ranked] {
         cards
-            .compactMap { card in card.earning(for: category).map { Ranked(card: card, earning: $0) } }
+            .compactMap { card in card.earning(for: category, includePortal: includePortal).map { Ranked(card: card, earning: $0) } }
             .sorted { lhs, rhs in
                 if lhs.earning.multiplier != rhs.earning.multiplier {
                     return lhs.earning.multiplier > rhs.earning.multiplier
@@ -23,8 +24,37 @@ struct BestCardView: View {
             }
     }
 
+    /// Cards with no earning rates saved at all.
     private var unrated: [CreditCard] {
-        cards.filter { $0.earning(for: category) == nil }
+        cards.filter { $0.rewardRates.isEmpty }
+    }
+
+    /// Cards with rates, but none for this category and no everyday rate.
+    private var noRateHere: [CreditCard] {
+        cards.filter { !$0.rewardRates.isEmpty && $0.earning(for: category, includePortal: includePortal) == nil }
+    }
+
+    private var hasPortalRates: Bool {
+        cards.contains { $0.rewardRates.contains(where: \.viaPortal) }
+    }
+
+    /// Why some cards aren't in the ranking.
+    private var footnotes: [String] {
+        let names = { (cards: [CreditCard]) in ListFormatter.localizedString(byJoining: cards.map(\.name)) }
+        let portalOnly = noRateHere.filter { $0.earning(for: category, includePortal: true) != nil }
+        let noRate = noRateHere.filter { $0.earning(for: category, includePortal: true) == nil }
+        var notes: [String] = []
+        if !portalOnly.isEmpty {
+            notes.append("\(names(portalOnly)) only \(portalOnly.count == 1 ? "earns" : "earn") a rate here through a travel portal.")
+        }
+        if !noRate.isEmpty {
+            let missing = category == .everythingElse ? "everyday" : "\(category.title.lowercased()) or everyday"
+            notes.append("No \(missing) rate saved for \(names(noRate)).")
+        }
+        if !unrated.isEmpty {
+            notes.append("No earning rates saved for \(names(unrated)).")
+        }
+        return notes
     }
 
     private var coverageCards: [CreditCard] {
@@ -38,10 +68,25 @@ struct BestCardView: View {
                 VStack(alignment: .leading, spacing: 24) {
                     CategoryGrid(selection: $category)
 
+                    if hasPortalRates {
+                        Toggle(isOn: $includePortal.animation(.snappy)) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Include portal bookings")
+                                    .font(.body.weight(.medium))
+                                Text("Rates you only get booking through Chase Travel, Amex Travel and similar.")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    }
+
                     let ranked = self.ranked
                     if let winner = ranked.first {
                         WinnerCard(card: winner.card, earning: winner.earning, category: category)
-                            .id(category)
+                            .id("\(category.rawValue)-\(includePortal)")
                             .transition(.asymmetric(insertion: .scale(scale: 0.96).combined(with: .opacity), removal: .opacity))
                     } else {
                         ContentUnavailableView(
@@ -80,11 +125,14 @@ struct BestCardView: View {
                         }
                     }
 
-                    if !unrated.isEmpty {
-                        Text("No earning rates saved for \(ListFormatter.localizedString(byJoining: unrated.map(\.name))).")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 4)
+                    let footnotes = self.footnotes
+                    if !footnotes.isEmpty {
+                        VStack(alignment: .leading, spacing: 8) {
+                            ForEach(footnotes, id: \.self) { Text($0) }
+                        }
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 4)
                     }
                 }
                 .padding()
