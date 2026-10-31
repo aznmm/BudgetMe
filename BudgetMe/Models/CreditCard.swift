@@ -26,6 +26,8 @@ final class CreditCard {
     var pointValue: Double? = nil
     /// The yearly fee, if the card has one.
     var annualFee: Double? = nil
+    /// Whether purchases abroad are free of foreign transaction fees, or nil to estimate from the card's name.
+    var noForeignFee: Bool? = nil
     var sortOrder: Int = 0
     var createdAt: Date = Date()
 

@@ -23,6 +23,9 @@ struct CardEditView: View {
     @State private var pointValue = 1.0
     /// False while the point value is still the estimate from the card's name.
     @State private var hasCustomPointValue = false
+    @State private var noForeignFee = false
+    /// False while the foreign fee setting is still the estimate from the card's name.
+    @State private var hasCustomForeignFee = false
     @State private var didLoad = false
 
     @AppStorage(SettingsKey.reminderDaysBefore) private var defaultReminderDays = 2
@@ -89,6 +92,14 @@ struct CardEditView: View {
                         TextField("None", text: $annualFeeText)
                             .keyboardType(.decimalPad)
                             .multilineTextAlignment(.trailing)
+                    }
+                }
+
+                Section {
+                    Toggle("No foreign transaction fees", isOn: noForeignFeeBinding)
+                } footer: {
+                    if !hasCustomForeignFee {
+                        Text("Estimated from the card's name until you change it. Best Card uses this when you filter for travel abroad.")
                     }
                 }
 
@@ -194,6 +205,16 @@ struct CardEditView: View {
         )
     }
 
+    private var noForeignFeeBinding: Binding<Bool> {
+        Binding(
+            get: { hasCustomForeignFee ? noForeignFee : CreditCard.estimatedNoForeignFee(name: name, issuer: issuer) },
+            set: { newValue in
+                noForeignFee = newValue
+                hasCustomForeignFee = true
+            }
+        )
+    }
+
     private var pointValueFooter: String {
         let tip = "Roughly what one point is worth. When two cards earn the same multiplier, Best Card puts the one with more valuable points first."
         return hasCustomPointValue ? tip : tip + " Estimated from the card's name until you change it."
@@ -211,6 +232,10 @@ struct CardEditView: View {
         if let value = card.pointValue {
             hasCustomPointValue = true
             pointValue = value
+        }
+        if let value = card.noForeignFee {
+            hasCustomForeignFee = true
+            noForeignFee = value
         }
         annualFeeText = card.annualFee.map { $0.formatted(.number.precision(.fractionLength(0...2)).grouping(.never)) } ?? ""
         name = card.name
@@ -238,6 +263,7 @@ struct CardEditView: View {
         target.dueDay = dueDay
         target.reminderDaysBefore = hasCustomReminder ? reminderDays : nil
         target.pointValue = hasCustomPointValue ? pointValue : nil
+        target.noForeignFee = hasCustomForeignFee ? noForeignFee : nil
         target.annualFee = parseAmount(annualFeeText).flatMap { $0 > 0 ? $0 : nil }
         target.rewardRates = rates
         target.perks = perks

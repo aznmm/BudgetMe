@@ -6,6 +6,7 @@ struct BestCardView: View {
     @Query(sort: \CreditCard.sortOrder) private var cards: [CreditCard]
     @State private var category: SpendCategory = .dining
     @AppStorage(SettingsKey.includePortalRates) private var includePortal = true
+    @AppStorage(SettingsKey.noForeignFeesOnly) private var noForeignFeesOnly = false
 
     private struct Ranked: Identifiable {
         let card: CreditCard
@@ -13,8 +14,13 @@ struct BestCardView: View {
         var id: PersistentIdentifier { card.persistentModelID }
     }
 
+    /// Cards that pass the filters.
+    private var eligibleCards: [CreditCard] {
+        noForeignFeesOnly ? cards.filter(\.effectiveNoForeignFee) : cards
+    }
+
     private var ranked: [Ranked] {
-        cards
+        eligibleCards
             .compactMap { card in card.earning(for: category, includePortal: includePortal).map { Ranked(card: card, earning: $0) } }
             .sorted { lhs, rhs in
                 if lhs.earning.multiplier != rhs.earning.multiplier {
@@ -44,16 +50,23 @@ struct BestCardView: View {
 
     /// Cards with no earning rates saved at all.
     private var unrated: [CreditCard] {
-        cards.filter { $0.rewardRates.isEmpty }
+        eligibleCards.filter { $0.rewardRates.isEmpty }
     }
 
     /// Cards with rates, but none for this category and no everyday rate.
     private var noRateHere: [CreditCard] {
-        cards.filter { !$0.rewardRates.isEmpty && $0.earning(for: category, includePortal: includePortal) == nil }
+        eligibleCards.filter { !$0.rewardRates.isEmpty && $0.earning(for: category, includePortal: includePortal) == nil }
     }
 
-    private var hasPortalRates: Bool {
-        cards.contains { $0.rewardRates.contains(where: \.viaPortal) }
+    private var filtersActive: Bool {
+        !includePortal || noForeignFeesOnly
+    }
+
+    private var activeFiltersText: String {
+        var parts: [String] = []
+        if noForeignFeesOnly { parts.append("Only cards with no foreign transaction fees") }
+        if !includePortal { parts.append("Portal bookings left out") }
+        return parts.joined(separator: " · ")
     }
 
     /// Why some cards aren't in the ranking.
@@ -61,7 +74,11 @@ struct BestCardView: View {
         let names = { (cards: [CreditCard]) in ListFormatter.localizedString(byJoining: cards.map(\.name)) }
         let portalOnly = noRateHere.filter { $0.earning(for: category, includePortal: true) != nil }
         let noRate = noRateHere.filter { $0.earning(for: category, includePortal: true) == nil }
+        let withForeignFees = noForeignFeesOnly ? cards.filter { !$0.effectiveNoForeignFee } : []
         var notes: [String] = []
+        if !withForeignFees.isEmpty {
+            notes.append("Left out because \(withForeignFees.count == 1 ? "it charges" : "they charge") foreign transaction fees: \(names(withForeignFees)).")
+        }
         if !portalOnly.isEmpty {
             notes.append("\(names(portalOnly)) only \(portalOnly.count == 1 ? "earns" : "earn") a rate here through a travel portal.")
         }
@@ -77,7 +94,7 @@ struct BestCardView: View {
 
     private var coverageCards: [CreditCard] {
         guard category == .carRental else { return [] }
-        return cards.filter { card in card.perks.contains { $0.localizedCaseInsensitiveContains("rental") } }
+        return eligibleCards.filter { card in card.perks.contains { $0.localizedCaseInsensitiveContains("rental") } }
     }
 
     var body: some View {
@@ -86,26 +103,34 @@ struct BestCardView: View {
                 VStack(alignment: .leading, spacing: 24) {
                     CategoryGrid(selection: $category)
 
-                    if hasPortalRates {
-                        Toggle(isOn: $includePortal.animation(.snappy)) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Include portal bookings")
-                                    .font(.body.weight(.medium))
-                                Text("Rates you only get booking through Chase Travel, Amex Travel and similar.")
-                                    .font(.footnote)
-                                    .foregroundStyle(.secondary)
+                    if filtersActive {
+                        HStack(alignment: .firstTextBaseline) {
+                            Label(activeFiltersText, systemImage: "line.3.horizontal.decrease.circle.fill")
+                                .font(.footnote.weight(.medium))
+                                .foregroundStyle(.secondary)
+                            Spacer(minLength: 8)
+                            Button("Reset") {
+                                withAnimation(.snappy) {
+                                    includePortal = true
+                                    noForeignFeesOnly = false
+                                }
                             }
+                            .font(.footnote.weight(.semibold))
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
-                        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .padding(.horizontal, 4)
                     }
 
                     let ranked = self.ranked
                     if let winner = ranked.first {
                         WinnerCard(card: winner.card, earning: winner.earning, category: category, tieNote: tieNote(in: ranked))
-                            .id("\(category.rawValue)-\(includePortal)")
+                            .id("\(category.rawValue)-\(includePortal)-\(noForeignFeesOnly)")
                             .transition(.asymmetric(insertion: .scale(scale: 0.96).combined(with: .opacity), removal: .opacity))
+                    } else if filtersActive && !cards.isEmpty {
+                        ContentUnavailableView(
+                            "No Matching Cards",
+                            systemImage: "line.3.horizontal.decrease.circle",
+                            description: Text("None of your cards earn on \(category.title.lowercased()) with these filters. Tap Reset or change them in the filter menu.")
+                        )
                     } else {
                         ContentUnavailableView(
                             "No Earning Info",
@@ -158,6 +183,16 @@ struct BestCardView: View {
             }
             .background(Color(.systemGroupedBackground))
             .navigationTitle("Best Card")
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Menu {
+                        Toggle("Include Portal Bookings", systemImage: "globe", isOn: $includePortal.animation(.snappy))
+                        Toggle("No Foreign Transaction Fees", systemImage: "airplane", isOn: $noForeignFeesOnly.animation(.snappy))
+                    } label: {
+                        Label("Filters", systemImage: filtersActive ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                    }
+                }
+            }
         }
     }
 }

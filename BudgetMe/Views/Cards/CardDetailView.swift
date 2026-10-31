@@ -131,8 +131,23 @@ struct CardDetailView: View {
                 }
             }
 
-            if !card.perks.isEmpty {
+            if !card.perks.isEmpty || card.effectiveNoForeignFee {
                 Section("Perks") {
+                    if card.effectiveNoForeignFee {
+                        Label {
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text("No foreign transaction fees")
+                                if card.noForeignFee == nil {
+                                    Text("Estimated. Check it in Edit.")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        } icon: {
+                            Image(systemName: "globe")
+                        }
+                        .symbolRenderingMode(.hierarchical)
+                    }
                     ForEach(card.perks, id: \.self) { perk in
                         Label(perk, systemImage: "checkmark.shield.fill")
                             .symbolRenderingMode(.hierarchical)

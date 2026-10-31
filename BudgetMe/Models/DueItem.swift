@@ -91,6 +91,7 @@ enum SettingsKey {
     static let remindOnDueDate = "remindOnDueDate"
     static let appearance = "appearance"
     static let includePortalRates = "includePortalRates"
+    static let noForeignFeesOnly = "noForeignFeesOnly"
 }
 
 extension Int {

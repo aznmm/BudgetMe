@@ -126,6 +126,19 @@ extension CreditCard {
         return 1
     }
 
+    /// Whether the card skips foreign transaction fees: what you set, or an estimate from its name.
+    var effectiveNoForeignFee: Bool {
+        noForeignFee ?? CreditCard.estimatedNoForeignFee(name: name, issuer: issuer)
+    }
+
+    /// Amex, Sapphire, Marriott and Discover cards generally have no foreign fees; Chase Freedom cards charge 3%.
+    /// Anything else is assumed to charge one until you say otherwise.
+    static func estimatedNoForeignFee(name: String, issuer: String) -> Bool {
+        let text = "\(name) \(issuer)".lowercased()
+        if text.contains("freedom") { return false }
+        return ["amex", "american express", "sapphire", "marriott", "bonvoy", "discover"].contains(where: { text.contains($0) })
+    }
+
     /// The best rate this card earns on `category`, falling back to its everything-else rate.
     /// With `includePortal` off, rates that need a travel portal booking are left out.
     func earning(for category: SpendCategory, includePortal: Bool = true) -> Earning? {
