@@ -7,6 +7,11 @@ enum ReminderScheduler {
         (try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])) ?? false
     }
 
+    /// True when notifications for the app are turned off in iPhone Settings.
+    static func isBlocked() async -> Bool {
+        await UNUserNotificationCenter.current().notificationSettings().authorizationStatus == .denied
+    }
+
     static func reschedule(_ payments: [ReminderPlan.Payment], enabled: Bool, options: ReminderPlan.Options, now: Date = .now) {
         let center = UNUserNotificationCenter.current()
         center.removeAllPendingNotificationRequests()

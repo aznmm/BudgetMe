@@ -14,6 +14,7 @@ struct BillEditView: View {
     @State private var symbol = "dollarsign.circle.fill"
     @State private var hasCustomReminder = false
     @State private var reminderDays = 2
+    @State private var isConfirmingDelete = false
     @State private var didLoad = false
 
     @AppStorage(SettingsKey.reminderDaysBefore) private var defaultReminderDays = 2
@@ -66,10 +67,15 @@ struct BillEditView: View {
 
                 if let bill {
                     Section {
+                        Button("Delete Bill", role: .destructive) { isConfirmingDelete = true }
+                    }
+                    .confirmationDialog("Delete \(bill.name)?", isPresented: $isConfirmingDelete, titleVisibility: .visible) {
                         Button("Delete Bill", role: .destructive) {
                             context.delete(bill)
                             dismiss()
                         }
+                    } message: {
+                        Text("This also removes its payment history. It can't be undone.")
                     }
                 }
             }

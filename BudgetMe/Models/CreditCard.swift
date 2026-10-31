@@ -28,6 +28,12 @@ final class CreditCard {
     var annualFee: Double? = nil
     /// Whether purchases abroad are free of foreign transaction fees, or nil to estimate from the card's name.
     var noForeignFee: Bool? = nil
+    /// A `CardNetwork` raw value, "none" when you've said it's unknown, or nil to estimate from the card's name.
+    var networkRaw: String? = nil
+    /// Off for cards you don't carry, so Best Card never suggests them.
+    var showInBestCard: Bool = true
+    /// Spending caps you've marked as reached, keyed "rateID|period" so they reset on their own.
+    var capsReached: [String] = []
     var sortOrder: Int = 0
     var createdAt: Date = Date()
 

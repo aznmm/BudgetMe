@@ -11,6 +11,11 @@ struct WalletView: View {
     /// How much of each stacked card peeks out above the next one.
     private let peek: CGFloat = 62
 
+    private var cardCountText: String {
+        let count = cards.count == 1 ? "1 card" : "\(cards.count) cards"
+        return "\(count) · tap a card for details"
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -52,7 +57,7 @@ struct WalletView: View {
                     .padding(.horizontal)
                     .padding(.top, 8)
 
-                    Text("\(cards.count) cards · tap a card for details")
+                    Text(cardCountText)
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .padding(.top, 20)

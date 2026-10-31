@@ -13,18 +13,25 @@ struct CreditHistoryView: View {
 
     private var currentYear: Int { Calendar.current.component(.year, from: .now) }
 
-    /// Credits on a schedule. One-time credits aren't tied to a year.
-    private var tracked: [Benefit] {
-        benefits.filter { $0.cadence != .once && (card == nil || $0.card == card) }
+    /// Every credit on the card, or on every card.
+    private var allCredits: [Benefit] {
+        benefits.filter { card == nil || $0.card == card }
     }
 
-    private var hasOneTimeCredits: Bool {
-        benefits.contains { $0.cadence == .once && (card == nil || $0.card == card) }
+    /// Credits shown for the year. A one-time credit shows in the year it was used, or this year if it hasn't been yet.
+    private var tracked: [Benefit] {
+        allCredits.filter { benefit in
+            guard benefit.cadence == .once else { return true }
+            return benefit.timesUsed(inYear: year) > 0 || (!benefit.isUsed() && year == currentYear)
+        }
     }
 
     /// Lets you go back at least a year to fill it in, or further if older uses were recorded.
     private var earliestYear: Int {
-        let recorded = tracked.flatMap(\.usedPeriods).compactMap { Int($0.prefix(4)) }
+        let recorded = allCredits
+            .flatMap(\.usedPeriods)
+            .compactMap { Cadence.startDate(ofKey: $0) }
+            .map { Calendar.current.component(.year, from: $0) }
         return min(recorded.min() ?? currentYear, currentYear - 1)
     }
 
@@ -44,9 +51,6 @@ struct CreditHistoryView: View {
 
     private var footnote: String {
         var notes = ["Tap a period to mark it used or not. Periods that haven't started yet can't be marked."]
-        if hasOneTimeCredits {
-            notes.append("One-time credits aren't tied to a year, so they aren't shown.")
-        }
         if shownCards.contains(where: { $0.annualFee == nil && !($0.benefits ?? []).isEmpty }) {
             notes.append("Add a card's annual fee when editing it to see how much of it your credits earned back.")
         }
@@ -55,7 +59,7 @@ struct CreditHistoryView: View {
 
     var body: some View {
         Group {
-            if tracked.isEmpty {
+            if allCredits.isEmpty {
                 ContentUnavailableView("No Credits", systemImage: "calendar", description: Text(emptyMessage))
             } else {
                 list

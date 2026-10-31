@@ -31,27 +31,38 @@ final class Benefit {
     }
 
     func isUsed(on date: Date = .now) -> Bool {
-        isUsed(periodKey: cadence.periodKey(for: date))
+        // A one-time credit stays used, whichever year it was used in.
+        if cadence == .once { return usedPeriods.contains { $0.hasPrefix("once") } }
+        return isUsed(periodKey: cadence.periodKey(for: date))
     }
 
     func setUsed(_ used: Bool, on date: Date = .now) {
+        if cadence == .once && !used {
+            usedPeriods.removeAll { $0.hasPrefix("once") }
+            return
+        }
         setUsed(used, periodKey: cadence.periodKey(for: date))
     }
 
-    /// How many periods of `year` this credit was used in. One-time credits aren't tied to a year.
+    /// How many periods of `year` this credit was used in. A one-time credit counts in the year it was used.
     func timesUsed(inYear year: Int) -> Int {
         cadence.periods(inYear: year).filter { isUsed(periodKey: $0.key) }.count
     }
 
     func isUsed(periodKey key: String) -> Bool {
-        usedPeriods.contains(key)
+        usedPeriods.contains(key) || (key == legacyOnceKey && usedPeriods.contains("once"))
     }
 
     func setUsed(_ used: Bool, periodKey key: String) {
         if used {
-            if !usedPeriods.contains(key) { usedPeriods.append(key) }
+            if !isUsed(periodKey: key) { usedPeriods.append(key) }
         } else {
-            usedPeriods.removeAll { $0 == key }
+            usedPeriods.removeAll { $0 == key || (key == legacyOnceKey && $0 == "once") }
         }
+    }
+
+    /// Earlier versions saved a one-time use as plain "once"; it counts toward the year the credit was added.
+    private var legacyOnceKey: String {
+        Cadence.once.periodKey(for: createdAt)
     }
 }

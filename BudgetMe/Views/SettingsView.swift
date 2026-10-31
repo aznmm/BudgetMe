@@ -1,10 +1,14 @@
 import SwiftUI
 import SwiftData
 import CloudKit
+import UIKit
+import UniformTypeIdentifiers
 
 struct SettingsView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
+    @Environment(\.scenePhase) private var scenePhase
     @Query private var cards: [CreditCard]
     @Query private var bills: [Bill]
     @Query private var benefits: [Benefit]
@@ -20,6 +24,11 @@ struct SettingsView: View {
     @State private var iCloudStatus: CKAccountStatus?
     @State private var isConfirmingStarter = false
     @State private var isConfirmingErase = false
+    @State private var notificationsBlocked = false
+    @State private var isShowingBlockedAlert = false
+    @State private var isImportingBackup = false
+    @State private var pendingRestore: Backup?
+    @State private var backupMessage: String?
 
     var body: some View {
         NavigationStack {
@@ -43,9 +52,29 @@ struct SettingsView: View {
                             guard remindersEnabled else { return }
                             Task {
                                 let granted = await ReminderScheduler.requestAuthorization()
-                                if !granted { remindersEnabled = false }
+                                if !granted {
+                                    remindersEnabled = false
+                                    isShowingBlockedAlert = true
+                                }
+                                notificationsBlocked = await ReminderScheduler.isBlocked()
                             }
                         }
+                        .alert("Notifications Are Off", isPresented: $isShowingBlockedAlert) {
+                            Button("Open iPhone Settings") { openNotificationSettings() }
+                            Button("Not Now", role: .cancel) {}
+                        } message: {
+                            Text("BudgetMe isn't allowed to send notifications. Turn them on in Settings › Notifications › BudgetMe, then switch reminders on again.")
+                        }
+                    if remindersEnabled && notificationsBlocked {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Label("Notifications are turned off for BudgetMe in iPhone Settings, so no reminders will arrive.", systemImage: "exclamationmark.triangle.fill")
+                                .font(.subheadline)
+                                .foregroundStyle(.orange)
+                            Button("Open iPhone Settings") { openNotificationSettings() }
+                                .font(.subheadline.weight(.semibold))
+                        }
+                        .padding(.vertical, 2)
+                    }
                     if remindersEnabled {
                         Stepper(value: $reminderDaysBefore, in: 0...ReminderPlan.maxDaysBefore) {
                             Text(ReminderPlan.noticeText(reminderDaysBefore))
@@ -91,6 +120,42 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    Button("Copy Backup", systemImage: "doc.on.doc") { copyBackup() }
+                    if let backupFile {
+                        ShareLink(item: backupFile, preview: SharePreview("BudgetMe Backup")) {
+                            Label("Save or Share Backup File", systemImage: "square.and.arrow.up")
+                        }
+                    }
+                    Button("Restore from Copied Backup", systemImage: "doc.on.clipboard") { restoreFromClipboard() }
+                    Button("Restore from File", systemImage: "folder") { isImportingBackup = true }
+                } header: {
+                    Text("Backup")
+                } footer: {
+                    Text("To move everything to another device, tap Copy Backup here, then Restore from Copied Backup there. A Mac and iPhone signed in to the same Apple ID share a clipboard. Restoring replaces everything in the app.")
+                }
+                .fileImporter(isPresented: $isImportingBackup, allowedContentTypes: [.json]) { result in
+                    readBackupFile(result)
+                }
+                .confirmationDialog(
+                    "Replace everything with this backup?",
+                    isPresented: Binding(get: { pendingRestore != nil }, set: { if !$0 { pendingRestore = nil } }),
+                    titleVisibility: .visible,
+                    presenting: pendingRestore
+                ) { backup in
+                    Button("Replace All Data", role: .destructive) { restore(backup) }
+                } message: { backup in
+                    Text("The backup has \(backup.summary), saved \(backup.exportedAt.formatted(date: .abbreviated, time: .shortened)). Everything in the app now will be replaced.")
+                }
+                .alert(
+                    "Backup",
+                    isPresented: Binding(get: { backupMessage != nil }, set: { if !$0 { backupMessage = nil } })
+                ) {
+                    Button("OK", role: .cancel) {}
+                } message: {
+                    Text(backupMessage ?? "")
+                }
+
+                Section {
                     Button("Load Cards from My Notes") { isConfirmingStarter = true }
                     Button("Erase All Data", role: .destructive) { isConfirmingErase = true }
                 } header: {
@@ -114,6 +179,12 @@ struct SettingsView: View {
                     return
                 }
                 iCloudStatus = (try? await CKContainer(identifier: id).accountStatus()) ?? .couldNotDetermine
+            }
+            .task { notificationsBlocked = await ReminderScheduler.isBlocked() }
+            .onChange(of: scenePhase) {
+                // Coming back from iPhone Settings: check again.
+                guard scenePhase == .active else { return }
+                Task { notificationsBlocked = await ReminderScheduler.isBlocked() }
             }
             .confirmationDialog("Load cards from your notes?", isPresented: $isConfirmingStarter, titleVisibility: .visible) {
                 Button("Load") { StarterData.load(into: context) }
@@ -139,6 +210,63 @@ struct SettingsView: View {
                 reminderMinuteOfDay = (parts.hour ?? 9) * 60 + (parts.minute ?? 0)
             }
         )
+    }
+
+    private var backupFile: BackupFile? {
+        (try? Backup(cards: cards, bills: bills, credits: benefits).encoded()).map { BackupFile(data: $0) }
+    }
+
+    private func copyBackup() {
+        guard let data = try? Backup(cards: cards, bills: bills, credits: benefits).encoded(),
+              let text = String(data: data, encoding: .utf8)
+        else {
+            backupMessage = "Couldn't make a backup."
+            return
+        }
+        UIPasteboard.general.string = text
+        backupMessage = "Backup copied. On your other device, open Settings and tap Restore from Copied Backup."
+    }
+
+    private func restoreFromClipboard() {
+        guard let text = UIPasteboard.general.string, let data = text.data(using: .utf8) else {
+            backupMessage = "There's nothing on the clipboard. Tap Copy Backup on the other device first."
+            return
+        }
+        do {
+            pendingRestore = try Backup.decode(data)
+        } catch {
+            backupMessage = "The clipboard doesn't hold a BudgetMe backup. Tap Copy Backup on the other device first."
+        }
+    }
+
+    private func readBackupFile(_ result: Result<URL, Error>) {
+        guard case .success(let url) = result else {
+            backupMessage = "Couldn't open that file."
+            return
+        }
+        // Files picked from outside the app need permission to be read.
+        let isAccessing = url.startAccessingSecurityScopedResource()
+        defer { if isAccessing { url.stopAccessingSecurityScopedResource() } }
+        do {
+            pendingRestore = try Backup.decode(Data(contentsOf: url))
+        } catch {
+            backupMessage = error.localizedDescription
+        }
+    }
+
+    private func restore(_ backup: Backup) {
+        do {
+            try backup.restore(into: context)
+            backupMessage = "Restored \(backup.summary)."
+        } catch {
+            backupMessage = "Couldn't restore the backup: \(error.localizedDescription)"
+        }
+    }
+
+    private func openNotificationSettings() {
+        if let url = URL(string: UIApplication.openNotificationSettingsURLString) {
+            openURL(url)
+        }
     }
 
     private func eraseAll() {

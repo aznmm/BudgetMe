@@ -30,7 +30,30 @@ enum Cadence: String, CaseIterable, Identifiable, Codable {
         }
     }
 
+    /// "a month", "a quarter", "every 6 months", "a year"
+    var perPeriodText: String {
+        switch self {
+        case .monthly: "a month"
+        case .quarterly: "a quarter"
+        case .semiannual: "every 6 months"
+        case .annual: "a year"
+        case .once: "in total"
+        }
+    }
+
+    /// "monthly", "each quarter", "every 6 months", "each year"
+    var resetText: String {
+        switch self {
+        case .monthly: "monthly"
+        case .quarterly: "each quarter"
+        case .semiannual: "every 6 months"
+        case .annual: "each year"
+        case .once: "never"
+        }
+    }
+
     /// A stable key for the period containing `date`, e.g. "2026-10", "2026-Q4", "2026-H2", "2026".
+    /// One-time credits record the year they were used: "once-2026".
     func periodKey(for date: Date, calendar: Calendar = .current) -> String {
         let parts = calendar.dateComponents([.year, .month], from: date)
         let year = parts.year ?? 2000
@@ -40,8 +63,43 @@ enum Cadence: String, CaseIterable, Identifiable, Codable {
         case .quarterly: return "\(year)-Q\((month - 1) / 3 + 1)"
         case .semiannual: return "\(year)-H\(month <= 6 ? 1 : 2)"
         case .annual: return "\(year)"
-        case .once: return "once"
+        case .once: return "once-\(year)"
         }
+    }
+
+    /// The first day of the period a key names: "2026-03", "2026-Q1", "2026-H2", "2026" or "once-2026".
+    /// Nil for keys without a date, like the plain "once" saved by earlier versions.
+    static func startDate(ofKey key: String, calendar: Calendar = .current) -> Date? {
+        let text = key.hasPrefix("once-") ? key.dropFirst(5) : Substring(key)
+        let parts = text.split(separator: "-")
+        guard let first = parts.first, let year = Int(first) else { return nil }
+        var month = 1
+        if parts.count > 1 {
+            let part = parts[1]
+            if part.hasPrefix("Q"), let quarter = Int(part.dropFirst()) {
+                month = (quarter - 1) * 3 + 1
+            } else if part.hasPrefix("H"), let half = Int(part.dropFirst()) {
+                month = (half - 1) * 6 + 1
+            } else if let number = Int(part) {
+                month = number
+            } else {
+                return nil
+            }
+        }
+        return calendar.date(from: DateComponents(year: year, month: month, day: 1))
+    }
+
+    /// Re-keys used periods for this cadence so history survives a schedule change:
+    /// uses in January or March become Q1, a used Q1 becomes January.
+    /// Keys without a date are placed at `fallback`.
+    func convert(_ keys: [String], fallback: Date, calendar: Calendar = .current) -> [String] {
+        var converted: [String] = []
+        for key in keys {
+            let date = Cadence.startDate(ofKey: key, calendar: calendar) ?? fallback
+            let newKey = periodKey(for: date, calendar: calendar)
+            if !converted.contains(newKey) { converted.append(newKey) }
+        }
+        return converted
     }
 
     /// First day of the period containing `date`.
@@ -60,9 +118,14 @@ enum Cadence: String, CaseIterable, Identifiable, Codable {
     }
 
     /// Every period in `year`, in order: 12 months, 4 quarters, 2 halves or the whole year.
-    /// One-time credits aren't tied to a year, so they have none.
+    /// A one-time credit has a single period covering the year.
     func periods(inYear year: Int, calendar: Calendar = .current) -> [CreditPeriod] {
-        guard let months = monthsPerPeriod else { return [] }
+        guard let months = monthsPerPeriod else {
+            guard let start = calendar.date(from: DateComponents(year: year, month: 1, day: 1)),
+                  let end = calendar.date(byAdding: .year, value: 1, to: start)
+            else { return [] }
+            return [CreditPeriod(key: periodKey(for: start, calendar: calendar), label: "One time", start: start, end: end)]
+        }
         return stride(from: 1, through: 12, by: months).compactMap { month in
             guard let start = calendar.date(from: DateComponents(year: year, month: month, day: 1)),
                   let end = calendar.date(byAdding: .month, value: months, to: start)

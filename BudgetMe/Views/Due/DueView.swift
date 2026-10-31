@@ -11,14 +11,22 @@ struct DueView: View {
 
     @State private var month = Date.now.startOfMonth
     @State private var editingBill: Bill?
+    @State private var billToDelete: Bill?
     @State private var isAddingBill = false
     @State private var isAddingCard = false
 
     private var schedule: PaydaySchedule { PaydaySchedule([firstPayday, secondPayday]) }
 
+    /// Payments due in `month`, counting each card or bill only from the month it was added,
+    /// so earlier months don't fill up with "overdue" payments you never tracked.
     private var items: [DueItem] {
-        (cards.map { DueItem(card: $0, month: month) } + bills.map { DueItem(bill: $0, month: month) })
-            .sorted { ($0.dueDate, $0.title) < ($1.dueDate, $1.title) }
+        let cardItems = cards
+            .filter { month >= $0.createdAt.startOfMonth }
+            .map { DueItem(card: $0, month: month) }
+        let billItems = bills
+            .filter { month >= $0.createdAt.startOfMonth }
+            .map { DueItem(bill: $0, month: month) }
+        return (cardItems + billItems).sorted { ($0.dueDate, $0.title) < ($1.dueDate, $1.title) }
     }
 
     var body: some View {
@@ -45,6 +53,18 @@ struct DueView: View {
             .sheet(isPresented: $isAddingBill) { BillEditView(bill: nil) }
             .sheet(isPresented: $isAddingCard) { CardEditView(card: nil) }
             .sheet(item: $editingBill) { BillEditView(bill: $0) }
+            .confirmationDialog(
+                "Delete \(billToDelete?.name ?? "this bill")?",
+                isPresented: Binding(get: { billToDelete != nil }, set: { if !$0 { billToDelete = nil } }),
+                titleVisibility: .visible,
+                presenting: billToDelete
+            ) { bill in
+                Button("Delete Bill", role: .destructive) {
+                    withAnimation { context.delete(bill) }
+                }
+            } message: { _ in
+                Text("This also removes its payment history. It can't be undone.")
+            }
         }
     }
 
@@ -99,10 +119,12 @@ struct DueView: View {
                 .onTapGesture { editingBill = bill }
                 .contextMenu {
                     Button("Edit", systemImage: "pencil") { editingBill = bill }
-                    Button("Delete", systemImage: "trash", role: .destructive) { context.delete(bill) }
+                    Button("Delete", systemImage: "trash", role: .destructive) { billToDelete = bill }
                 }
                 .swipeActions(edge: .trailing) {
-                    Button("Delete", systemImage: "trash", role: .destructive) { context.delete(bill) }
+                    // Not role: .destructive, which would slide the row away before you confirm.
+                    Button("Delete", systemImage: "trash") { billToDelete = bill }
+                        .tint(.red)
                     Button("Edit", systemImage: "pencil") { editingBill = bill }
                         .tint(.indigo)
                 }

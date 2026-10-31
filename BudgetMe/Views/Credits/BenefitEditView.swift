@@ -15,6 +15,7 @@ struct BenefitEditView: View {
     @State private var cadence: Cadence = .monthly
     @State private var selectedCard: CreditCard?
     @State private var note = ""
+    @State private var isConfirmingDelete = false
     @State private var didLoad = false
 
     var body: some View {
@@ -57,10 +58,15 @@ struct BenefitEditView: View {
 
                 if let benefit {
                     Section {
+                        Button("Delete Credit", role: .destructive) { isConfirmingDelete = true }
+                    }
+                    .confirmationDialog("Delete \(benefit.name)?", isPresented: $isConfirmingDelete, titleVisibility: .visible) {
                         Button("Delete Credit", role: .destructive) {
                             context.delete(benefit)
                             dismiss()
                         }
+                    } message: {
+                        Text("Its history goes too, along with what it counted toward the card's annual fee. This can't be undone.")
                     }
                 }
             }
@@ -102,6 +108,10 @@ struct BenefitEditView: View {
         }
         target.name = name.trimmingCharacters(in: .whitespaces)
         target.amount = parseAmount(amountText)
+        if target.cadence != cadence {
+            // Keep the history: uses in January or March become Q1, and so on.
+            target.usedPeriods = cadence.convert(target.usedPeriods, fallback: target.createdAt)
+        }
         target.cadence = cadence
         target.card = selectedCard
         target.note = note

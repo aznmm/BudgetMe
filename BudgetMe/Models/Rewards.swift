@@ -64,13 +64,47 @@ struct RewardRate: Codable, Hashable, Identifiable {
     var note: String = ""
     /// Only earned when booking through the card's travel portal (Chase Travel, Amex Travel…).
     var viaPortal: Bool = false
+    /// Spending this rate applies to before it drops, e.g. $25,000 a year. Nil for no amount.
+    var capAmount: Double? = nil
+    /// How often the cap resets, or nil when the rate has no cap.
+    var capPeriod: Cadence? = nil
+    /// The quarter ("2026-Q4") a rotating category earns in, or nil when it always earns.
+    var rotatingQuarter: String? = nil
 
     var label: String {
         note.isEmpty ? category.title : note
     }
 
+    /// False for a rotating category whose quarter is over.
+    func isActive(on date: Date = .now) -> Bool {
+        rotatingQuarter == nil || rotatingQuarter == Cadence.quarterly.periodKey(for: date)
+    }
+
+    /// "Up to $25,000 a year"
+    var capText: String? {
+        guard let capPeriod else { return nil }
+        guard let capAmount, capAmount > 0 else { return "Spending cap, resets \(capPeriod.resetText)" }
+        return "Up to \(capAmount.currencyText) \(capPeriod.perPeriodText)"
+    }
+
+    /// "Q3 2026" for a rotating category's quarter.
+    var rotatingLabel: String? {
+        guard let rotatingQuarter else { return nil }
+        let parts = rotatingQuarter.split(separator: "-")
+        return parts.count == 2 ? "\(parts[1]) \(parts[0])" : rotatingQuarter
+    }
+
+    /// "Portal · This quarter only · Up to $25,000 a year", or nil when no options are set.
+    var optionsSummary: String? {
+        var parts: [String] = []
+        if viaPortal { parts.append("Portal") }
+        if rotatingQuarter != nil { parts.append(isActive() ? "This quarter only" : "Rotating, out of date") }
+        if let capText { parts.append(capText) }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
     private enum CodingKeys: String, CodingKey {
-        case id, category, multiplier, note, viaPortal
+        case id, category, multiplier, note, viaPortal, capAmount, capPeriod, rotatingQuarter
     }
 
     /// Guesses from the details whether a rate saved before the portal switch existed is a portal rate.
@@ -89,6 +123,9 @@ extension RewardRate {
         multiplier = try container.decode(Double.self, forKey: .multiplier)
         note = try container.decodeIfPresent(String.self, forKey: .note) ?? ""
         viaPortal = try container.decodeIfPresent(Bool.self, forKey: .viaPortal) ?? RewardRate.looksLikePortal(note)
+        capAmount = try container.decodeIfPresent(Double.self, forKey: .capAmount)
+        capPeriod = try container.decodeIfPresent(Cadence.self, forKey: .capPeriod)
+        rotatingQuarter = try container.decodeIfPresent(String.self, forKey: .rotatingQuarter)
     }
 }
 
@@ -102,6 +139,11 @@ extension Double {
     var centsText: String {
         formatted(.number.precision(.fractionLength(0...2))) + "¢"
     }
+
+    /// "8%", "2.4%"
+    var percentText: String {
+        formatted(.number.precision(.fractionLength(0...1))) + "%"
+    }
 }
 
 /// What a card earns on a given category.
@@ -110,6 +152,32 @@ struct Earning {
     /// Every rate that applies, best first ("5× Via Chase Travel", "2× All other travel").
     let details: [RewardRate]
     let isBaseRate: Bool
+    /// The card has no everyday rate saved, so 1× is assumed.
+    var isAssumed = false
+}
+
+/// The payment network, which decides where a card is accepted.
+enum CardNetwork: String, CaseIterable, Identifiable, Codable {
+    case visa
+    case mastercard
+    case amex
+    case discover
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .visa: "Visa"
+        case .mastercard: "Mastercard"
+        case .amex: "Amex"
+        case .discover: "Discover"
+        }
+    }
+
+    /// Visa and Mastercard are taken almost everywhere, including Costco and most places abroad.
+    var isWidelyAccepted: Bool {
+        self == .visa || self == .mastercard
+    }
 }
 
 extension CreditCard {
@@ -139,10 +207,57 @@ extension CreditCard {
         return ["amex", "american express", "sapphire", "marriott", "bonvoy", "discover"].contains(where: { text.contains($0) })
     }
 
+    /// The card's network: what you set, or an estimate from its name. Nil when unknown.
+    var effectiveNetwork: CardNetwork? {
+        guard let networkRaw else { return CreditCard.estimatedNetwork(name: name, issuer: issuer) }
+        return CardNetwork(rawValue: networkRaw)
+    }
+
+    /// Amex and Discover issue their own; Chase's Sapphire, Freedom and Marriott cards are Visa, except Freedom Flex.
+    static func estimatedNetwork(name: String, issuer: String) -> CardNetwork? {
+        let text = "\(name) \(issuer)".lowercased()
+        if text.contains("amex") || text.contains("american express") { return .amex }
+        if text.contains("discover") { return .discover }
+        if text.contains("mastercard") || text.contains("flex") { return .mastercard }
+        if ["visa", "sapphire", "freedom", "marriott", "bonvoy"].contains(where: { text.contains($0) }) { return .visa }
+        return nil
+    }
+
+    /// Point value as a rough cash-back rate: 4× at 2¢ a point is about 8% back.
+    func percentBack(for earning: Earning) -> Double {
+        earning.multiplier * effectivePointValue
+    }
+
+    /// Whether you've marked this rate's spending cap as reached for the current period.
+    func isCapReached(_ rate: RewardRate, on date: Date = .now) -> Bool {
+        guard let key = capKey(for: rate, on: date) else { return false }
+        return capsReached.contains(key)
+    }
+
+    func setCapReached(_ reached: Bool, for rate: RewardRate, on date: Date = .now) {
+        guard let key = capKey(for: rate, on: date) else { return }
+        if reached {
+            if !capsReached.contains(key) { capsReached.append(key) }
+        } else {
+            capsReached.removeAll { $0 == key }
+        }
+    }
+
+    /// Keyed by period like credits, so a reached cap resets on its own.
+    private func capKey(for rate: RewardRate, on date: Date) -> String? {
+        guard let period = rate.capPeriod else { return nil }
+        return "\(rate.id.uuidString)|\(period.periodKey(for: date))"
+    }
+
+    private static let assumedBaseRateID = UUID()
+
     /// The best rate this card earns on `category`, falling back to its everything-else rate.
-    /// With `includePortal` off, rates that need a travel portal booking are left out.
-    func earning(for category: SpendCategory, includePortal: Bool = true) -> Earning? {
-        let rates = rewardRates.filter { includePortal || !$0.viaPortal }
+    /// With `includePortal` off, rates that need a travel portal booking are left out. Rates whose
+    /// cap is reached or whose rotating quarter is over are skipped too.
+    func earning(for category: SpendCategory, includePortal: Bool = true, on date: Date = .now) -> Earning? {
+        let rates = rewardRates.filter { rate in
+            (includePortal || !rate.viaPortal) && rate.isActive(on: date) && !isCapReached(rate, on: date)
+        }
         let matches = rates
             .filter { category.isCovered(by: $0.category) }
             .sorted { $0.multiplier > $1.multiplier }
@@ -152,6 +267,9 @@ extension CreditCard {
         if let base = rates.first(where: { $0.category == .everythingElse }) {
             return Earning(multiplier: base.multiplier, details: [base], isBaseRate: true)
         }
-        return nil
+        // Nearly every card earns at least 1× on everything, so assume that rather than leave the card out.
+        guard !rewardRates.isEmpty else { return nil }
+        let assumed = RewardRate(id: CreditCard.assumedBaseRateID, category: .everythingElse, multiplier: 1, note: "Everyday rate (assumed 1×)")
+        return Earning(multiplier: 1, details: [assumed], isBaseRate: true, isAssumed: true)
     }
 }

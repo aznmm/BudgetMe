@@ -26,6 +26,10 @@ struct CardEditView: View {
     @State private var noForeignFee = false
     /// False while the foreign fee setting is still the estimate from the card's name.
     @State private var hasCustomForeignFee = false
+    @State private var network: CardNetwork?
+    /// False while the network is still the estimate from the card's name.
+    @State private var hasCustomNetwork = false
+    @State private var showInBestCard = true
     @State private var didLoad = false
 
     @AppStorage(SettingsKey.reminderDaysBefore) private var defaultReminderDays = 2
@@ -96,11 +100,21 @@ struct CardEditView: View {
                 }
 
                 Section {
-                    Toggle("No foreign transaction fees", isOn: noForeignFeeBinding)
-                } footer: {
-                    if !hasCustomForeignFee {
-                        Text("Estimated from the card's name until you change it. Best Card uses this when you filter for travel abroad.")
+                    Toggle("Show in Best Card", isOn: $showInBestCard)
+                    Picker("Network", selection: networkBinding) {
+                        Text("Not set").tag(CardNetwork?.none)
+                        ForEach(CardNetwork.allCases) { option in
+                            Text(option.title).tag(CardNetwork?.some(option))
+                        }
                     }
+                    Toggle("No foreign transaction fees", isOn: noForeignFeeBinding)
+                    Stepper(value: pointValueBinding, in: 0.1...5, step: 0.1) {
+                        LabeledContent("Point value", value: "\(shownPointValue.centsText) per point")
+                    }
+                } header: {
+                    Text("Best Card")
+                } footer: {
+                    Text(bestCardFooter)
                 }
 
                 ReminderSection(isCustom: $hasCustomReminder, daysBefore: $reminderDays)
@@ -129,8 +143,13 @@ struct CardEditView: View {
                             TextField("Details (e.g. Via Chase Travel)", text: $rate.note)
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
-                            Toggle("Through a travel portal", isOn: $rate.viaPortal)
-                                .font(.subheadline)
+                            DisclosureGroup {
+                                RateOptions(rate: $rate)
+                            } label: {
+                                Text(rate.optionsSummary ?? "Portal, cap or rotating category")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                         .padding(.vertical, 2)
                     }
@@ -144,15 +163,7 @@ struct CardEditView: View {
                 } header: {
                     Text("Earning")
                 } footer: {
-                    Text("Used by Best Card to rank your cards. Add an \u{201C}Everything Else\u{201D} rate for the card's base earn. Turn on \u{201C}Through a travel portal\u{201D} for rates you only get when booking through the card's portal, so Best Card can leave them out.")
-                }
-
-                Section {
-                    Stepper(value: pointValueBinding, in: 0.1...5, step: 0.1) {
-                        LabeledContent("Point value", value: "\(shownPointValue.centsText) per point")
-                    }
-                } footer: {
-                    Text(pointValueFooter)
+                    Text("Used by Best Card to rank your cards. Add an \u{201C}Everything Else\u{201D} rate for the card's base earn; without one, 1\u{00D7} is assumed. Open a rate's options to mark portal-only rates, spending caps, or rotating categories that only earn this quarter.")
                 }
 
                 Section("Perks") {
@@ -205,6 +216,16 @@ struct CardEditView: View {
         )
     }
 
+    private var networkBinding: Binding<CardNetwork?> {
+        Binding(
+            get: { hasCustomNetwork ? network : CreditCard.estimatedNetwork(name: name, issuer: issuer) },
+            set: { newValue in
+                network = newValue
+                hasCustomNetwork = true
+            }
+        )
+    }
+
     private var noForeignFeeBinding: Binding<Bool> {
         Binding(
             get: { hasCustomForeignFee ? noForeignFee : CreditCard.estimatedNoForeignFee(name: name, issuer: issuer) },
@@ -215,9 +236,19 @@ struct CardEditView: View {
         )
     }
 
-    private var pointValueFooter: String {
-        let tip = "Roughly what one point is worth. When two cards earn the same multiplier, Best Card puts the one with more valuable points first."
-        return hasCustomPointValue ? tip : tip + " Estimated from the card's name until you change it."
+    private var bestCardFooter: String {
+        var notes = ["Point value is roughly what one point is worth. When two cards earn the same multiplier, Best Card puts the one with more valuable points first."]
+        let candidates: [String?] = [
+            hasCustomNetwork ? nil : "network",
+            hasCustomForeignFee ? nil : "foreign fees",
+            hasCustomPointValue ? nil : "point value",
+        ]
+        let estimated = candidates.compactMap { $0 }
+        if !estimated.isEmpty {
+            let list = ListFormatter.localizedString(byJoining: estimated)
+            notes.append("The \(list) \(estimated.count == 1 ? "is" : "are") estimated from the card's name until you change \(estimated.count == 1 ? "it" : "them").")
+        }
+        return notes.joined(separator: " ")
     }
 
     private func load() {
@@ -237,6 +268,11 @@ struct CardEditView: View {
             hasCustomForeignFee = true
             noForeignFee = value
         }
+        if let raw = card.networkRaw {
+            hasCustomNetwork = true
+            network = CardNetwork(rawValue: raw)
+        }
+        showInBestCard = card.showInBestCard
         annualFeeText = card.annualFee.map { $0.formatted(.number.precision(.fractionLength(0...2)).grouping(.never)) } ?? ""
         name = card.name
         issuer = card.issuer
@@ -264,6 +300,9 @@ struct CardEditView: View {
         target.reminderDaysBefore = hasCustomReminder ? reminderDays : nil
         target.pointValue = hasCustomPointValue ? pointValue : nil
         target.noForeignFee = hasCustomForeignFee ? noForeignFee : nil
+        // "none" remembers that you chose Not set, so it isn't estimated again.
+        target.networkRaw = hasCustomNetwork ? (network?.rawValue ?? "none") : nil
+        target.showInBestCard = showInBestCard
         target.annualFee = parseAmount(annualFeeText).flatMap { $0 > 0 ? $0 : nil }
         target.rewardRates = rates
         target.perks = perks
@@ -271,5 +310,64 @@ struct CardEditView: View {
             .filter { !$0.isEmpty }
         target.notes = notes
         dismiss()
+    }
+}
+
+/// A rate's less common options: portal-only, rotating category and spending cap.
+private struct RateOptions: View {
+    @Binding var rate: RewardRate
+
+    private var currentQuarter: String { Cadence.quarterly.periodKey(for: .now) }
+    private var currentQuarterLabel: String { Cadence.quarterly.periodLabel(for: .now) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Toggle("Through a travel portal", isOn: $rate.viaPortal)
+
+            Toggle("Only this quarter (\(currentQuarterLabel))", isOn: Binding(
+                get: { rate.rotatingQuarter != nil },
+                set: { rate.rotatingQuarter = $0 ? currentQuarter : nil }
+            ))
+            if rate.rotatingQuarter != nil && !rate.isActive() {
+                HStack {
+                    Text("Was for \(rate.rotatingLabel ?? "an earlier quarter")")
+                        .foregroundStyle(.orange)
+                    Spacer()
+                    Button("Use for \(currentQuarterLabel)") { rate.rotatingQuarter = currentQuarter }
+                        .buttonStyle(.borderless)
+                }
+            }
+
+            Toggle("Spending cap", isOn: Binding(
+                get: { rate.capPeriod != nil },
+                set: { isOn in
+                    rate.capPeriod = isOn ? .annual : nil
+                    if !isOn { rate.capAmount = nil }
+                }
+            ))
+            if rate.capPeriod != nil {
+                HStack {
+                    Text("$")
+                        .foregroundStyle(.secondary)
+                    TextField("Amount", value: Binding(
+                        get: { rate.capAmount ?? 0 },
+                        set: { rate.capAmount = $0 > 0 ? $0 : nil }
+                    ), format: .number)
+                    .keyboardType(.decimalPad)
+                    Picker("Resets", selection: Binding(
+                        get: { rate.capPeriod ?? .annual },
+                        set: { rate.capPeriod = $0 }
+                    )) {
+                        ForEach([Cadence.monthly, .quarterly, .semiannual, .annual]) { period in
+                            Text(period.title).tag(period)
+                        }
+                    }
+                    .labelsHidden()
+                    .fixedSize()
+                }
+            }
+        }
+        .font(.subheadline)
+        .padding(.top, 4)
     }
 }

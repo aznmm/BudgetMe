@@ -59,6 +59,9 @@ struct CardDetailView: View {
                 if remindersEnabled {
                     LabeledContent("Reminder", value: ReminderPlan.noticeText(card.reminderDaysBefore ?? defaultReminderDays))
                 }
+                if let network = card.effectiveNetwork {
+                    LabeledContent("Network", value: network.title)
+                }
                 Toggle(isOn: Binding(
                     get: { isPaid },
                     set: { newValue in withAnimation { card.setPaid(newValue, monthKey: month.monthKey) } }
@@ -75,21 +78,44 @@ struct CardDetailView: View {
                         .foregroundStyle(.secondary)
                 } else {
                     ForEach(rates) { rate in
-                        HStack(spacing: 12) {
-                            Image(systemName: rate.category.symbol)
-                                .foregroundStyle(.tint)
-                                .frame(width: 24)
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(rate.label)
-                                if !rate.note.isEmpty && rate.note != rate.category.title {
-                                    Text(rate.category.title)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(spacing: 12) {
+                                Image(systemName: rate.category.symbol)
+                                    .foregroundStyle(.tint)
+                                    .frame(width: 24)
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(rate.label)
+                                    if !rate.note.isEmpty && rate.note != rate.category.title {
+                                        Text(rate.category.title)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    if let rotating = rate.rotatingLabel {
+                                        let status = rate.isActive() ? "Rotating · this quarter only" : "Rotating · was for \(rotating), edit to update"
+                                        Text(status)
+                                            .font(.caption)
+                                            .foregroundStyle(rate.isActive() ? Color.secondary : Color.orange)
+                                    }
+                                    if let capText = rate.capText {
+                                        Text(capText)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
                                 }
+                                Spacer()
+                                Text(rate.multiplier.multiplierText)
+                                    .font(.body.weight(.semibold).monospacedDigit())
                             }
-                            Spacer()
-                            Text(rate.multiplier.multiplierText)
-                                .font(.body.weight(.semibold).monospacedDigit())
+                            if rate.capPeriod != nil {
+                                Toggle(isOn: Binding(
+                                    get: { card.isCapReached(rate) },
+                                    set: { reached in withAnimation { card.setCapReached(reached, for: rate) } }
+                                )) {
+                                    Text("Cap reached")
+                                        .font(.subheadline)
+                                }
+                                .padding(.leading, 36)
+                            }
                         }
                     }
                 }
@@ -101,7 +127,7 @@ struct CardDetailView: View {
                 ForEach(card.sortedBenefits) { benefit in
                     BenefitRow(benefit: benefit, onEdit: { editingCredit = $0 })
                 }
-                if card.sortedBenefits.contains(where: { $0.cadence != .once }) {
+                if !card.sortedBenefits.isEmpty {
                     NavigationLink {
                         CreditHistoryView(card: card)
                     } label: {
