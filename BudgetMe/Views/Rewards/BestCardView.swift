@@ -20,8 +20,26 @@ struct BestCardView: View {
                 if lhs.earning.multiplier != rhs.earning.multiplier {
                     return lhs.earning.multiplier > rhs.earning.multiplier
                 }
+                // Same multiplier: the card whose points are worth more wins.
+                if lhs.card.effectivePointValue != rhs.card.effectivePointValue {
+                    return lhs.card.effectivePointValue > rhs.card.effectivePointValue
+                }
                 return lhs.card.sortOrder < rhs.card.sortOrder
             }
+    }
+
+    /// Explains why the winner beat a card earning the same multiplier.
+    private func tieNote(in ranked: [Ranked]) -> String? {
+        guard let winner = ranked.first,
+              let tied = ranked.dropFirst().first(where: { $0.earning.multiplier == winner.earning.multiplier })
+        else { return nil }
+        let rate = winner.earning.multiplier.multiplierText
+        let mine = winner.card.effectivePointValue
+        let theirs = tied.card.effectivePointValue
+        if mine > theirs {
+            return "Tied at \(rate) with \(tied.card.name). Ranked first because its points are worth more (\(mine.centsText) vs \(theirs.centsText))."
+        }
+        return "Tied at \(rate) with \(tied.card.name), and their points are worth the same, so your Wallet order decides."
     }
 
     /// Cards with no earning rates saved at all.
@@ -85,7 +103,7 @@ struct BestCardView: View {
 
                     let ranked = self.ranked
                     if let winner = ranked.first {
-                        WinnerCard(card: winner.card, earning: winner.earning, category: category)
+                        WinnerCard(card: winner.card, earning: winner.earning, category: category, tieNote: tieNote(in: ranked))
                             .id("\(category.rawValue)-\(includePortal)")
                             .transition(.asymmetric(insertion: .scale(scale: 0.96).combined(with: .opacity), removal: .opacity))
                     } else {
@@ -184,6 +202,7 @@ private struct WinnerCard: View {
     let card: CreditCard
     let earning: Earning
     let category: SpendCategory
+    var tieNote: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -214,6 +233,12 @@ private struct WinnerCard: View {
                     Text("No bonus here — this is the card's everyday rate.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
+                }
+                if let tieNote {
+                    Label(tieNote, systemImage: "equal.circle")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 4)
                 }
             }
         }

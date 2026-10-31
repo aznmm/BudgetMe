@@ -22,6 +22,10 @@ final class CreditCard {
     var notes: String = ""
     /// Days of notice for this card's payment reminder, or nil to use the default from Settings.
     var reminderDaysBefore: Int? = nil
+    /// Cents one point is worth, or nil to estimate it from the card's name. Breaks ties in Best Card.
+    var pointValue: Double? = nil
+    /// The yearly fee, if the card has one.
+    var annualFee: Double? = nil
     var sortOrder: Int = 0
     var createdAt: Date = Date()
 
@@ -61,6 +65,18 @@ final class CreditCard {
 
     var sortedBenefits: [Benefit] {
         (benefits ?? []).sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    /// What the credits used in `year` were worth. Only credits with a value set count.
+    func creditValueUsed(inYear year: Int) -> Double {
+        (benefits ?? []).reduce(0) { total, benefit in
+            total + Double(benefit.timesUsed(inYear: year)) * (benefit.amount ?? 0)
+        }
+    }
+
+    /// Credits used in `year` that have no value set, so they can't count toward the fee.
+    func unpricedCreditsUsed(inYear year: Int) -> [Benefit] {
+        (benefits ?? []).filter { $0.amount == nil && $0.timesUsed(inYear: year) > 0 }
     }
 
     func isPaid(monthKey: String) -> Bool {

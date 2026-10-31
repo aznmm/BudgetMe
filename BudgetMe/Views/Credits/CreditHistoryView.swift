@@ -43,8 +43,14 @@ struct CreditHistoryView: View {
     }
 
     private var footnote: String {
-        let tip = "Tap a period to mark it used or not. Periods that haven't started yet can't be marked."
-        return hasOneTimeCredits ? tip + " One-time credits aren't tied to a year, so they aren't shown." : tip
+        var notes = ["Tap a period to mark it used or not. Periods that haven't started yet can't be marked."]
+        if hasOneTimeCredits {
+            notes.append("One-time credits aren't tied to a year, so they aren't shown.")
+        }
+        if shownCards.contains(where: { $0.annualFee == nil && !($0.benefits ?? []).isEmpty }) {
+            notes.append("Add a card's annual fee when editing it to see how much of it your credits earned back.")
+        }
+        return notes.joined(separator: " ")
     }
 
     var body: some View {
@@ -75,6 +81,14 @@ struct CreditHistoryView: View {
                 let rows = tracked.filter { $0.card == card }
                 if !rows.isEmpty {
                     Section {
+                        if let fee = card.annualFee {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Annual fee earned back")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                                FeeProgress(fee: fee, earned: card.creditValueUsed(inYear: year))
+                            }
+                        }
                         ForEach(rows) { benefit in CreditYearRow(benefit: benefit, year: year) }
                     } header: {
                         HStack(spacing: 8) {
@@ -173,7 +187,7 @@ private struct CreditYearRow: View {
 
     var body: some View {
         let periods = benefit.cadence.periods(inYear: year)
-        let usedCount = periods.filter { benefit.isUsed(periodKey: $0.key) }.count
+        let usedCount = benefit.timesUsed(inYear: year)
         let currentKey = benefit.cadence.periodKey(for: .now)
 
         VStack(alignment: .leading, spacing: 10) {

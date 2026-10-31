@@ -97,6 +97,11 @@ extension Double {
     var multiplierText: String {
         formatted(.number.precision(.fractionLength(0...1))) + "×"
     }
+
+    /// "2¢", "0.8¢"
+    var centsText: String {
+        formatted(.number.precision(.fractionLength(0...2))) + "¢"
+    }
 }
 
 /// What a card earns on a given category.
@@ -108,6 +113,19 @@ struct Earning {
 }
 
 extension CreditCard {
+    /// Cents a point is worth: the value you set, or an estimate from the card's name.
+    var effectivePointValue: Double {
+        pointValue ?? CreditCard.estimatedPointValue(name: name, issuer: issuer)
+    }
+
+    /// Rough values: Marriott Bonvoy points are worth less than Amex or Chase points; cash back is 1¢.
+    static func estimatedPointValue(name: String, issuer: String) -> Double {
+        let text = "\(name) \(issuer)".lowercased()
+        if text.contains("marriott") || text.contains("bonvoy") { return 0.8 }
+        if ["amex", "american express", "chase", "sapphire", "freedom"].contains(where: { text.contains($0) }) { return 2 }
+        return 1
+    }
+
     /// The best rate this card earns on `category`, falling back to its everything-else rate.
     /// With `includePortal` off, rates that need a travel portal booking are left out.
     func earning(for category: SpendCategory, includePortal: Bool = true) -> Earning? {

@@ -19,6 +19,10 @@ struct CardEditView: View {
     @State private var notes = ""
     @State private var hasCustomReminder = false
     @State private var reminderDays = 2
+    @State private var annualFeeText = ""
+    @State private var pointValue = 1.0
+    /// False while the point value is still the estimate from the card's name.
+    @State private var hasCustomPointValue = false
     @State private var didLoad = false
 
     @AppStorage(SettingsKey.reminderDaysBefore) private var defaultReminderDays = 2
@@ -79,6 +83,13 @@ struct CardEditView: View {
                             Text("\(day.ordinal) of the month").tag(day)
                         }
                     }
+                    HStack {
+                        Text("Annual fee")
+                        Spacer()
+                        TextField("None", text: $annualFeeText)
+                            .keyboardType(.decimalPad)
+                            .multilineTextAlignment(.trailing)
+                    }
                 }
 
                 ReminderSection(isCustom: $hasCustomReminder, daysBefore: $reminderDays)
@@ -125,6 +136,14 @@ struct CardEditView: View {
                     Text("Used by Best Card to rank your cards. Add an \u{201C}Everything Else\u{201D} rate for the card's base earn. Turn on \u{201C}Through a travel portal\u{201D} for rates you only get when booking through the card's portal, so Best Card can leave them out.")
                 }
 
+                Section {
+                    Stepper(value: pointValueBinding, in: 0.1...5, step: 0.1) {
+                        LabeledContent("Point value", value: "\(shownPointValue.centsText) per point")
+                    }
+                } footer: {
+                    Text(pointValueFooter)
+                }
+
                 Section("Perks") {
                     ForEach(perks.indices, id: \.self) { index in
                         TextField("Perk", text: Binding(
@@ -159,6 +178,27 @@ struct CardEditView: View {
         }
     }
 
+    /// The point value on screen: what you picked, or the estimate from the name as you type it.
+    private var shownPointValue: Double {
+        hasCustomPointValue ? pointValue : CreditCard.estimatedPointValue(name: name, issuer: issuer)
+    }
+
+    private var pointValueBinding: Binding<Double> {
+        Binding(
+            get: { shownPointValue },
+            set: { newValue in
+                // Round so repeated 0.1 steps don't drift (0.30000000000000004).
+                pointValue = (newValue * 10).rounded() / 10
+                hasCustomPointValue = true
+            }
+        )
+    }
+
+    private var pointValueFooter: String {
+        let tip = "Roughly what one point is worth. When two cards earn the same multiplier, Best Card puts the one with more valuable points first."
+        return hasCustomPointValue ? tip : tip + " Estimated from the card's name until you change it."
+    }
+
     private func load() {
         guard !didLoad else { return }
         didLoad = true
@@ -168,6 +208,11 @@ struct CardEditView: View {
             hasCustomReminder = true
             reminderDays = days
         }
+        if let value = card.pointValue {
+            hasCustomPointValue = true
+            pointValue = value
+        }
+        annualFeeText = card.annualFee.map { $0.formatted(.number.precision(.fractionLength(0...2)).grouping(.never)) } ?? ""
         name = card.name
         issuer = card.issuer
         lastFour = card.lastFour
@@ -192,6 +237,8 @@ struct CardEditView: View {
         target.theme = theme
         target.dueDay = dueDay
         target.reminderDaysBefore = hasCustomReminder ? reminderDays : nil
+        target.pointValue = hasCustomPointValue ? pointValue : nil
+        target.annualFee = parseAmount(annualFeeText).flatMap { $0 > 0 ? $0 : nil }
         target.rewardRates = rates
         target.perks = perks
             .map { $0.trimmingCharacters(in: .whitespaces) }

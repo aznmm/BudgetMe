@@ -38,6 +38,11 @@ final class Benefit {
         setUsed(used, periodKey: cadence.periodKey(for: date))
     }
 
+    /// How many periods of `year` this credit was used in. One-time credits aren't tied to a year.
+    func timesUsed(inYear year: Int) -> Int {
+        cadence.periods(inYear: year).filter { isUsed(periodKey: $0.key) }.count
+    }
+
     func isUsed(periodKey key: String) -> Bool {
         usedPeriods.contains(key)
     }

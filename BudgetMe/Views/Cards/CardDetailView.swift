@@ -25,6 +25,15 @@ struct CardDetailView: View {
         return (thisMonth.daysFromToday < 0 && isPaid) ? month.addingMonths(1).day(card.dueDay) : thisMonth
     }
 
+    /// Points out used credits that can't count toward the fee because they have no value.
+    private func unpricedNote(year: Int) -> String {
+        let unpriced = card.unpricedCreditsUsed(inYear: year)
+        let counted = "Counts the value of each credit every time you use it this year."
+        guard !unpriced.isEmpty else { return counted }
+        let names = ListFormatter.localizedString(byJoining: unpriced.map(\.name))
+        return "\(counted) \(names) \(unpriced.count == 1 ? "has" : "have") no value yet, so \(unpriced.count == 1 ? "it doesn't" : "they don't") count. Tap a credit above to add its value."
+    }
+
     var body: some View {
         if isDeleted {
             Color.clear
@@ -102,6 +111,24 @@ struct CardDetailView: View {
                 Button("Add Credit", systemImage: "plus.circle.fill") { isAddingCredit = true }
             } header: {
                 Text("Credits")
+            }
+
+            if let fee = card.annualFee {
+                let year = Calendar.current.component(.year, from: .now)
+                Section {
+                    LabeledContent("Annual fee", value: fee.currencyText)
+                    VStack(alignment: .leading, spacing: 4) {
+                        // String(year) so it reads "2026", not "2,026".
+                        Text("Credits used in \(String(year))")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        FeeProgress(fee: fee, earned: card.creditValueUsed(inYear: year))
+                    }
+                } header: {
+                    Text("Annual Fee")
+                } footer: {
+                    Text(unpricedNote(year: year))
+                }
             }
 
             if !card.perks.isEmpty {
