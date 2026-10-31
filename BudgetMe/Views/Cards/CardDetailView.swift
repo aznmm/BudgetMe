@@ -16,6 +16,7 @@ struct CardDetailView: View {
     @State private var editingCredit: Benefit?
     @State private var isConfirmingDelete = false
     @State private var isDeleted = false
+    @State private var isSettingRotating = false
 
     private var month: Date { Date.now.startOfMonth }
     private var isPaid: Bool { card.isPaid(monthKey: month.monthKey) }
@@ -32,6 +33,54 @@ struct CardDetailView: View {
         guard !unpriced.isEmpty else { return counted }
         let names = ListFormatter.localizedString(byJoining: unpriced.map(\.name))
         return "\(counted) \(names) \(unpriced.count == 1 ? "has" : "have") no value yet, so \(unpriced.count == 1 ? "it doesn't" : "they don't") count. Tap a credit above to add its value."
+    }
+
+    private var rotatingSection: some View {
+        let current = card.rotatingRates()
+        let quarter = Cadence.quarterly.periodLabel(for: .now)
+        let buttonTitle = current.isEmpty ? "Set \(quarter) Categories" : "Change Categories"
+        return Section {
+            if current.isEmpty {
+                Text("Not set for \(quarter) yet.")
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(current) { rate in
+                    HStack(spacing: 12) {
+                        Image(systemName: rate.symbol)
+                            .foregroundStyle(.tint)
+                            .frame(width: 24)
+                        Text(rate.choice.title)
+                        Spacer()
+                        Text(rate.multiplier.multiplierText)
+                            .font(.body.weight(.semibold).monospacedDigit())
+                    }
+                }
+                Toggle("Activated with card issuer", isOn: Binding(
+                    get: { card.isRotatingActivated() },
+                    set: { activated in withAnimation { card.setRotatingActivated(activated) } }
+                ))
+                if let capText = current.first?.capText {
+                    Toggle(isOn: Binding(
+                        get: { current.allSatisfy { card.isCapReached($0) } },
+                        set: { reached in withAnimation { current.forEach { card.setCapReached(reached, for: $0) } } }
+                    )) {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("Cap reached")
+                            Text(capText)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+            Button(buttonTitle, systemImage: "arrow.triangle.2.circlepath") {
+                isSettingRotating = true
+            }
+        } header: {
+            Text("\(quarter) Rotating 5× Categories")
+        } footer: {
+            Text("These only earn this quarter. When the next one starts, Best Card reminds you to set the new ones.")
+        }
     }
 
     var body: some View {
@@ -72,7 +121,8 @@ struct CardDetailView: View {
             }
 
             Section {
-                let rates = card.rewardRates.sorted { $0.multiplier > $1.multiplier }
+                // Rotating categories have their own section below.
+                let rates = card.rewardRates.filter { $0.rotatingQuarter == nil }.sorted { $0.multiplier > $1.multiplier }
                 if rates.isEmpty {
                     Text("No earning rates yet")
                         .foregroundStyle(.secondary)
@@ -80,21 +130,15 @@ struct CardDetailView: View {
                     ForEach(rates) { rate in
                         VStack(alignment: .leading, spacing: 8) {
                             HStack(spacing: 12) {
-                                Image(systemName: rate.category.symbol)
+                                Image(systemName: rate.symbol)
                                     .foregroundStyle(.tint)
                                     .frame(width: 24)
                                 VStack(alignment: .leading, spacing: 1) {
                                     Text(rate.label)
-                                    if !rate.note.isEmpty && rate.note != rate.category.title {
-                                        Text(rate.category.title)
+                                    if !rate.note.isEmpty && rate.note != rate.choice.title {
+                                        Text(rate.choice.title)
                                             .font(.caption)
                                             .foregroundStyle(.secondary)
-                                    }
-                                    if let rotating = rate.rotatingLabel {
-                                        let status = rate.isActive() ? "Rotating · this quarter only" : "Rotating · was for \(rotating), edit to update"
-                                        Text(status)
-                                            .font(.caption)
-                                            .foregroundStyle(rate.isActive() ? Color.secondary : Color.orange)
                                     }
                                     if let capText = rate.capText {
                                         Text(capText)
@@ -121,6 +165,10 @@ struct CardDetailView: View {
                 }
             } header: {
                 Text("Earning")
+            }
+
+            if card.effectiveHasRotatingCategories || card.rewardRates.contains(where: { $0.rotatingQuarter != nil }) {
+                rotatingSection
             }
 
             Section {
@@ -199,6 +247,7 @@ struct CardDetailView: View {
         .sheet(isPresented: $isEditing) { CardEditView(card: card) }
         .sheet(isPresented: $isAddingCredit) { BenefitEditView(benefit: nil, card: card) }
         .sheet(item: $editingCredit) { BenefitEditView(benefit: $0, card: card) }
+        .sheet(isPresented: $isSettingRotating) { RotatingCategoriesView(card: card) }
         .confirmationDialog("Delete \(card.name)?", isPresented: $isConfirmingDelete, titleVisibility: .visible) {
             Button("Delete Card and Its Credits", role: .destructive) {
                 isDeleted = true

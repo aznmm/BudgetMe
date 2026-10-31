@@ -30,6 +30,12 @@ struct CardEditView: View {
     /// False while the network is still the estimate from the card's name.
     @State private var hasCustomNetwork = false
     @State private var showInBestCard = true
+    @State private var hasRotating = false
+    /// False while the rotating setting is still the estimate from the card's name.
+    @State private var hasCustomRotating = false
+    /// The rate getting a new custom category name, while the name prompt is up.
+    @State private var namingRateID: UUID?
+    @State private var newCategoryName = ""
     @State private var didLoad = false
 
     @AppStorage(SettingsKey.reminderDaysBefore) private var defaultReminderDays = 2
@@ -108,6 +114,7 @@ struct CardEditView: View {
                         }
                     }
                     Toggle("No foreign transaction fees", isOn: noForeignFeeBinding)
+                    Toggle("Rotating 5× categories", isOn: rotatingBinding)
                     Stepper(value: pointValueBinding, in: 0.1...5, step: 0.1) {
                         LabeledContent("Point value", value: "\(shownPointValue.centsText) per point")
                     }
@@ -123,14 +130,26 @@ struct CardEditView: View {
                     ForEach($rates) { $rate in
                         VStack(alignment: .leading, spacing: 8) {
                             HStack {
-                                Picker("Category", selection: $rate.category) {
+                                Menu {
                                     ForEach(SpendCategory.allCases) { category in
-                                        Label(category.title, systemImage: category.symbol).tag(category)
+                                        Button(category.title, systemImage: category.symbol) {
+                                            $rate.wrappedValue.category = category
+                                            $rate.wrappedValue.customCategory = nil
+                                        }
                                     }
+                                    Section("Your Categories") {
+                                        ForEach(customCategoryNames, id: \.self) { name in
+                                            Button(name, systemImage: "tag.fill") { $rate.wrappedValue.customCategory = name }
+                                        }
+                                        Button("New Category…", systemImage: "plus") {
+                                            newCategoryName = ""
+                                            namingRateID = rate.id
+                                        }
+                                    }
+                                } label: {
+                                    Label(rate.choice.title, systemImage: rate.symbol)
+                                        .fixedSize()
                                 }
-                                .labelsHidden()
-                                .pickerStyle(.menu)
-                                .fixedSize()
 
                                 Spacer()
 
@@ -146,7 +165,7 @@ struct CardEditView: View {
                             DisclosureGroup {
                                 RateOptions(rate: $rate)
                             } label: {
-                                Text(rate.optionsSummary ?? "Portal, cap or rotating category")
+                                Text(rate.optionsSummary ?? "Portal or spending cap")
                                     .font(.subheadline)
                                     .foregroundStyle(.secondary)
                             }
@@ -163,7 +182,7 @@ struct CardEditView: View {
                 } header: {
                     Text("Earning")
                 } footer: {
-                    Text("Used by Best Card to rank your cards. Add an \u{201C}Everything Else\u{201D} rate for the card's base earn; without one, 1\u{00D7} is assumed. Open a rate's options to mark portal-only rates, spending caps, or rotating categories that only earn this quarter.")
+                    Text("Used by Best Card to rank your cards. Add an \u{201C}Everything Else\u{201D} rate for the card's base earn; without one, 1\u{00D7} is assumed. Pick New Category… for a store like Amazon. Open a rate's options to mark portal-only rates or spending caps.")
                 }
 
                 Section("Perks") {
@@ -197,7 +216,31 @@ struct CardEditView: View {
                 }
             }
             .onAppear(perform: load)
+            .alert(
+                "New Category",
+                isPresented: Binding(get: { namingRateID != nil }, set: { if !$0 { namingRateID = nil } })
+            ) {
+                TextField("Name, e.g. Amazon", text: $newCategoryName)
+                    .textInputAutocapitalization(.words)
+                Button("Add", action: addCustomCategory)
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("A store or category this rate earns at. It shows up in Best Card for all your cards.")
+            }
         }
+    }
+
+    /// Custom categories already used on any card, plus any added while editing this one.
+    private var customCategoryNames: [String] {
+        CategoryChoice.customNames(in: allCards.flatMap(\.rewardRates) + rates)
+    }
+
+    private func addCustomCategory() {
+        let name = newCategoryName.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty, let index = rates.firstIndex(where: { $0.id == namingRateID }) else { return }
+        // Reuse an existing category's spelling, so "amazon" and "Amazon" stay one category.
+        let existing = customCategoryNames.first { $0.caseInsensitiveCompare(name) == .orderedSame }
+        rates[index].customCategory = existing ?? name
     }
 
     /// The point value on screen: what you picked, or the estimate from the name as you type it.
@@ -226,6 +269,16 @@ struct CardEditView: View {
         )
     }
 
+    private var rotatingBinding: Binding<Bool> {
+        Binding(
+            get: { hasCustomRotating ? hasRotating : CreditCard.estimatedHasRotatingCategories(name: name, issuer: issuer) },
+            set: { newValue in
+                hasRotating = newValue
+                hasCustomRotating = true
+            }
+        )
+    }
+
     private var noForeignFeeBinding: Binding<Bool> {
         Binding(
             get: { hasCustomForeignFee ? noForeignFee : CreditCard.estimatedNoForeignFee(name: name, issuer: issuer) },
@@ -237,11 +290,12 @@ struct CardEditView: View {
     }
 
     private var bestCardFooter: String {
-        var notes = ["Point value is roughly what one point is worth. When two cards earn the same multiplier, Best Card puts the one with more valuable points first."]
+        var notes = ["Point value is roughly what one point is worth. When two cards earn the same multiplier, Best Card puts the one with more valuable points first. With rotating categories on, set each quarter's from the card's page."]
         let candidates: [String?] = [
             hasCustomNetwork ? nil : "network",
             hasCustomForeignFee ? nil : "foreign fees",
             hasCustomPointValue ? nil : "point value",
+            hasCustomRotating ? nil : "rotating categories",
         ]
         let estimated = candidates.compactMap { $0 }
         if !estimated.isEmpty {
@@ -273,6 +327,10 @@ struct CardEditView: View {
             network = CardNetwork(rawValue: raw)
         }
         showInBestCard = card.showInBestCard
+        if let value = card.hasRotatingCategories {
+            hasCustomRotating = true
+            hasRotating = value
+        }
         annualFeeText = card.annualFee.map { $0.formatted(.number.precision(.fractionLength(0...2)).grouping(.never)) } ?? ""
         name = card.name
         issuer = card.issuer
@@ -303,6 +361,7 @@ struct CardEditView: View {
         // "none" remembers that you chose Not set, so it isn't estimated again.
         target.networkRaw = hasCustomNetwork ? (network?.rawValue ?? "none") : nil
         target.showInBestCard = showInBestCard
+        target.hasRotatingCategories = hasCustomRotating ? hasRotating : nil
         target.annualFee = parseAmount(annualFeeText).flatMap { $0 > 0 ? $0 : nil }
         target.rewardRates = rates
         target.perks = perks
@@ -313,29 +372,17 @@ struct CardEditView: View {
     }
 }
 
-/// A rate's less common options: portal-only, rotating category and spending cap.
+/// A rate's less common options: portal-only and spending cap.
 private struct RateOptions: View {
     @Binding var rate: RewardRate
-
-    private var currentQuarter: String { Cadence.quarterly.periodKey(for: .now) }
-    private var currentQuarterLabel: String { Cadence.quarterly.periodLabel(for: .now) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Toggle("Through a travel portal", isOn: $rate.viaPortal)
 
-            Toggle("Only this quarter (\(currentQuarterLabel))", isOn: Binding(
-                get: { rate.rotatingQuarter != nil },
-                set: { rate.rotatingQuarter = $0 ? currentQuarter : nil }
-            ))
-            if rate.rotatingQuarter != nil && !rate.isActive() {
-                HStack {
-                    Text("Was for \(rate.rotatingLabel ?? "an earlier quarter")")
-                        .foregroundStyle(.orange)
-                    Spacer()
-                    Button("Use for \(currentQuarterLabel)") { rate.rotatingQuarter = currentQuarter }
-                        .buttonStyle(.borderless)
-                }
+            if let quarter = rate.rotatingLabel {
+                Text("Rotating category for \(quarter). Change rotating categories from the card's page.")
+                    .foregroundStyle(rate.isActive() ? Color.secondary : Color.orange)
             }
 
             Toggle("Spending cap", isOn: Binding(

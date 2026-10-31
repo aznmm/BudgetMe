@@ -12,13 +12,13 @@ enum ReminderScheduler {
         await UNUserNotificationCenter.current().notificationSettings().authorizationStatus == .denied
     }
 
-    static func reschedule(_ payments: [ReminderPlan.Payment], enabled: Bool, options: ReminderPlan.Options, now: Date = .now) {
+    static func reschedule(_ payments: [ReminderPlan.Payment], rotatingCards: [String], enabled: Bool, options: ReminderPlan.Options, now: Date = .now) {
         let center = UNUserNotificationCenter.current()
         center.removeAllPendingNotificationRequests()
         guard enabled else { return }
 
         let calendar = Calendar.current
-        for reminder in ReminderPlan.reminders(for: payments, options: options, now: now, calendar: calendar) {
+        for reminder in ReminderPlan.reminders(for: payments, rotatingCards: rotatingCards, options: options, now: now, calendar: calendar) {
             let content = UNMutableNotificationContent()
             content.title = reminder.title
             content.body = reminder.body

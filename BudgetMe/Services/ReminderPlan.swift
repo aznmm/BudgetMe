@@ -33,9 +33,28 @@ enum ReminderPlan {
 
     /// Reminders for unpaid payments due this month and the next two, soonest first.
     /// Three months covers the longest notice for anything due next month.
-    static func reminders(for payments: [Payment], options: Options, now: Date = .now, calendar: Calendar = .current) -> [Reminder] {
+    /// Cards in `rotatingCards` also get a reminder to set new 5× categories when the next quarter starts.
+    static func reminders(
+        for payments: [Payment],
+        rotatingCards: [String] = [],
+        options: Options,
+        now: Date = .now,
+        calendar: Calendar = .current
+    ) -> [Reminder] {
         let minute = min(max(options.minuteOfDay, 0), 24 * 60 - 1)
         var reminders: [Reminder] = []
+
+        if !rotatingCards.isEmpty,
+           let quarterStart = Cadence.quarterly.nextReset(after: now, calendar: calendar),
+           let fireDate = calendar.date(bySettingHour: minute / 60, minute: minute % 60, second: 0, of: quarterStart) {
+            let names = ListFormatter.localizedString(byJoining: rotatingCards)
+            reminders.append(Reminder(
+                id: "rotating-\(Cadence.quarterly.periodKey(for: quarterStart, calendar: calendar))",
+                title: "New 5× categories this quarter",
+                body: "Set this quarter's rotating categories for \(names), and activate them with your card issuer.",
+                fireDate: fireDate
+            ))
+        }
 
         for offset in 0..<3 {
             let month = now.startOfMonth.addingMonths(offset)

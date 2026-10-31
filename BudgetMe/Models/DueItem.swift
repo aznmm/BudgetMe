@@ -93,6 +93,7 @@ enum SettingsKey {
     static let includePortalRates = "includePortalRates"
     static let noForeignFeesOnly = "noForeignFeesOnly"
     static let widelyAcceptedOnly = "widelyAcceptedOnly"
+    static let showPercentBack = "showPercentBack"
 }
 
 extension Int {

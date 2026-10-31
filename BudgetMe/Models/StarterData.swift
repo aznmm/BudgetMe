@@ -38,14 +38,18 @@ enum StarterData {
             RewardRate(category: .everythingElse, multiplier: 1, note: "All other purchases"),
         ])
         _ = card("BMO Mastercard", .ocean, due: 18, order: 4)
-        let freedomRates = [
+        _ = card("Chase Freedom", .sapphire, due: 20, order: 5, rates: [
+            RewardRate(category: .travel, multiplier: 5, note: "Via Chase Travel", viaPortal: true),
+            RewardRate(category: .dining, multiplier: 3, note: "Dining"),
             RewardRate(category: .drugstore, multiplier: 3, note: "Drugstores"),
             RewardRate(category: .everythingElse, multiplier: 1.5, note: "All other purchases"),
-        ]
-        _ = card("Chase Freedom", .sapphire, due: 20, order: 5, rates: freedomRates)
-        _ = card("Chase Freedom Flex", .teal, due: 20, order: 6, rates: freedomRates.map {
-            RewardRate(category: $0.category, multiplier: $0.multiplier, note: $0.note)
-        })
+        ])
+        _ = card("Chase Freedom Flex", .teal, due: 20, order: 6, rates: [
+            RewardRate(category: .travel, multiplier: 5, note: "Via Chase Travel", viaPortal: true),
+            RewardRate(category: .dining, multiplier: 3, note: "Dining"),
+            RewardRate(category: .drugstore, multiplier: 3, note: "Drugstores"),
+            RewardRate(category: .everythingElse, multiplier: 1, note: "All other purchases"),
+        ])
         _ = card("Discover", .sunset, due: 24, order: 7)
         let sapphire = card("Chase Sapphire", .midnight, due: 27, order: 8, rates: [
             RewardRate(category: .travel, multiplier: 5, note: "Via Chase Travel", viaPortal: true),

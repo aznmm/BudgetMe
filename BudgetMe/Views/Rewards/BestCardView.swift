@@ -4,15 +4,27 @@ import SwiftData
 /// "Which card should I use?" Pick what you're buying, see your cards ranked by what they earn.
 struct BestCardView: View {
     @Query(sort: \CreditCard.sortOrder) private var cards: [CreditCard]
-    @State private var category: SpendCategory = .dining
+    @State private var category: CategoryChoice = .builtIn(.dining)
+    @State private var settingRotatingFor: CreditCard?
     @AppStorage(SettingsKey.includePortalRates) private var includePortal = true
     @AppStorage(SettingsKey.noForeignFeesOnly) private var noForeignFeesOnly = false
     @AppStorage(SettingsKey.widelyAcceptedOnly) private var widelyAcceptedOnly = false
+    @AppStorage(SettingsKey.showPercentBack) private var showPercentBack = false
 
     private struct Ranked: Identifiable {
         let card: CreditCard
         let earning: Earning
         var id: PersistentIdentifier { card.persistentModelID }
+    }
+
+    /// Categories you named on any card, like "Amazon".
+    private var customNames: [String] {
+        CategoryChoice.customNames(in: cards.flatMap(\.rewardRates))
+    }
+
+    /// Cards with rotating 5× categories that aren't set for this quarter yet.
+    private var needRotatingSetup: [CreditCard] {
+        shownCards.filter { $0.needsRotatingCategories() }
     }
 
     /// Cards you carry, which aren't hidden from Best Card.
@@ -100,16 +112,10 @@ struct BestCardView: View {
         }
 
         for card in eligibleCards {
-            let capped = card.rewardRates.filter { category.isCovered(by: $0.category) && card.isCapReached($0) }
+            let capped = card.rewardRates.filter { $0.applies(to: category) && card.isCapReached($0) }
             for rate in capped {
                 notes.append("\(card.name)'s \(rate.multiplier.multiplierText) \(rate.label.lowercased()) has hit its cap, so its next rate is used until the cap resets.")
             }
-        }
-        let outdatedRotating = eligibleCards.filter { card in
-            card.rewardRates.contains { $0.rotatingQuarter != nil && !$0.isActive() }
-        }
-        if !outdatedRotating.isEmpty {
-            notes.append("Rotating categories are out of date for \(names(outdatedRotating)). Edit the card to set this quarter's.")
         }
 
         if !unrated.isEmpty {
@@ -123,7 +129,7 @@ struct BestCardView: View {
     }
 
     private var coverageCards: [CreditCard] {
-        guard category == .carRental else { return [] }
+        guard category == .builtIn(.carRental) else { return [] }
         return eligibleCards.filter { card in card.perks.contains { $0.localizedCaseInsensitiveContains("rental") } }
     }
 
@@ -131,7 +137,33 @@ struct BestCardView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
-                    CategoryGrid(selection: $category)
+                    CategoryGrid(selection: $category, customNames: customNames)
+
+                    ForEach(needRotatingSetup) { card in
+                        Button {
+                            settingRotatingFor = card
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: "arrow.triangle.2.circlepath")
+                                    .font(.title3)
+                                    .foregroundStyle(.orange)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Set \(card.name)'s \(Cadence.quarterly.periodLabel(for: .now)) 5× categories")
+                                        .font(.subheadline.weight(.semibold))
+                                    Text("Rotating categories only count once they're set for this quarter.")
+                                        .font(.footnote)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer(minLength: 8)
+                                Image(systemName: "chevron.right")
+                                    .font(.footnote.weight(.semibold))
+                                    .foregroundStyle(.tertiary)
+                            }
+                            .padding(14)
+                            .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+                    }
 
                     if filtersActive {
                         HStack(alignment: .firstTextBaseline) {
@@ -153,20 +185,20 @@ struct BestCardView: View {
 
                     let ranked = self.ranked
                     if let winner = ranked.first {
-                        WinnerCard(card: winner.card, earning: winner.earning, category: category, tieNote: tieNote(in: ranked))
-                            .id("\(category.rawValue)-\(includePortal)-\(noForeignFeesOnly)-\(widelyAcceptedOnly)")
+                        WinnerCard(card: winner.card, earning: winner.earning, category: category, tieNote: tieNote(in: ranked), showPercentBack: showPercentBack)
+                            .id("\(category.id)-\(includePortal)-\(noForeignFeesOnly)-\(widelyAcceptedOnly)")
                             .transition(.asymmetric(insertion: .scale(scale: 0.96).combined(with: .opacity), removal: .opacity))
                     } else if filtersActive && !cards.isEmpty {
                         ContentUnavailableView(
                             "No Matching Cards",
                             systemImage: "line.3.horizontal.decrease.circle",
-                            description: Text("None of your cards earn on \(category.title.lowercased()) with these filters. Tap Reset or change them in the filter menu.")
+                            description: Text("None of your cards earn on \(category.inlineTitle) with these filters. Tap Reset or change them in the filter menu.")
                         )
                     } else {
                         ContentUnavailableView(
                             "No Earning Info",
                             systemImage: "sparkles",
-                            description: Text("Add earning rates to your cards in Wallet to see the best one for \(category.title.lowercased()).")
+                            description: Text("Add earning rates to your cards in Wallet to see the best one for \(category.inlineTitle).")
                         )
                     }
 
@@ -192,7 +224,7 @@ struct BestCardView: View {
                                 let runnersUp = Array(ranked.dropFirst())
                                 ForEach(runnersUp) { entry in
                                     if entry.id != runnersUp.first?.id { Divider().padding(.leading, 70) }
-                                    RunnerUpRow(card: entry.card, earning: entry.earning)
+                                    RunnerUpRow(card: entry.card, earning: entry.earning, showPercentBack: showPercentBack)
                                 }
                             }
                             .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
@@ -214,12 +246,21 @@ struct BestCardView: View {
             }
             .background(Color(.systemGroupedBackground))
             .navigationTitle("Best Card")
+            .sheet(item: $settingRotatingFor) { RotatingCategoriesView(card: $0) }
+            .onChange(of: customNames) {
+                // A custom category goes away when no card earns there anymore.
+                if case .custom(let name) = category, !customNames.contains(name) {
+                    category = .builtIn(.dining)
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
                         Toggle("Include Portal Bookings", systemImage: "globe", isOn: $includePortal.animation(.snappy))
                         Toggle("No Foreign Transaction Fees", systemImage: "airplane", isOn: $noForeignFeesOnly.animation(.snappy))
                         Toggle("Visa & Mastercard Only", systemImage: "creditcard", isOn: $widelyAcceptedOnly.animation(.snappy))
+                        Divider()
+                        Toggle("Show % Back", systemImage: "percent", isOn: $showPercentBack.animation(.snappy))
                     } label: {
                         Label("Filters", systemImage: filtersActive ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
                     }
@@ -230,21 +271,26 @@ struct BestCardView: View {
 }
 
 private struct CategoryGrid: View {
-    @Binding var selection: SpendCategory
+    @Binding var selection: CategoryChoice
+    let customNames: [String]
     private let columns = [GridItem(.adaptive(minimum: 78), spacing: 10)]
+
+    private var choices: [CategoryChoice] {
+        SpendCategory.allCases.map { CategoryChoice.builtIn($0) } + customNames.map { CategoryChoice.custom($0) }
+    }
 
     var body: some View {
         LazyVGrid(columns: columns, spacing: 10) {
-            ForEach(SpendCategory.allCases) { category in
-                let isSelected = category == selection
+            ForEach(choices) { choice in
+                let isSelected = choice == selection
                 Button {
-                    selection = category
+                    selection = choice
                 } label: {
                     VStack(spacing: 6) {
-                        Image(systemName: category.symbol)
+                        Image(systemName: choice.symbol)
                             .font(.title3)
                             .frame(height: 24)
-                        Text(category.title)
+                        Text(choice.title)
                             .font(.caption.weight(.medium))
                             .lineLimit(1)
                             .minimumScaleFactor(0.75)
@@ -268,8 +314,14 @@ private struct CategoryGrid: View {
 private struct WinnerCard: View {
     let card: CreditCard
     let earning: Earning
-    let category: SpendCategory
+    let category: CategoryChoice
     var tieNote: String?
+    var showPercentBack = false
+
+    /// The winning rate is a rotating category you haven't marked as activated.
+    private var needsActivation: Bool {
+        earning.details.first?.rotatingQuarter != nil && !card.isRotatingActivated()
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -282,9 +334,11 @@ private struct WinnerCard: View {
                     Text(earning.multiplier.multiplierText)
                         .font(.system(size: 44, weight: .bold, design: .rounded))
                         .foregroundStyle(.tint)
-                    Text("≈ \(card.percentBack(for: earning).percentText) back")
-                        .font(.footnote.weight(.medium))
-                        .foregroundStyle(.secondary)
+                    if showPercentBack {
+                        Text("≈ \(card.percentBack(for: earning).percentText) back")
+                            .font(.footnote.weight(.medium))
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
 
@@ -312,10 +366,16 @@ private struct WinnerCard: View {
                     Text("No everyday rate is saved for this card, so 1× is assumed. Add one when editing the card.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
-                } else if earning.isBaseRate && category != .everythingElse {
+                } else if earning.isBaseRate && category != .builtIn(.everythingElse) {
                     Text("No bonus here — this is the card's everyday rate.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
+                }
+                if needsActivation {
+                    Label("Activate this quarter's categories with your card issuer to earn \(earning.multiplier.multiplierText), then mark them activated on the card's page.", systemImage: "exclamationmark.circle")
+                        .font(.footnote)
+                        .foregroundStyle(.orange)
+                        .padding(.top, 4)
                 }
                 if let tieNote {
                     Label(tieNote, systemImage: "equal.circle")
@@ -333,10 +393,11 @@ private struct WinnerCard: View {
 private struct RunnerUpRow: View {
     let card: CreditCard
     let earning: Earning
+    var showPercentBack = false
 
     private var subtitle: String {
         if earning.isAssumed { return "Everyday rate (assumed)" }
-        if earning.isBaseRate && earning.details.first?.category == .everythingElse { return "Everyday rate" }
+        if earning.isBaseRate && earning.details.first?.isEverydayRate == true { return "Everyday rate" }
         return earning.details.first?.label ?? ""
     }
 
@@ -355,9 +416,11 @@ private struct RunnerUpRow: View {
             VStack(alignment: .trailing, spacing: 0) {
                 Text(earning.multiplier.multiplierText)
                     .font(.title3.weight(.semibold).monospacedDigit())
-                Text("≈ \(card.percentBack(for: earning).percentText)")
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
+                if showPercentBack {
+                    Text("≈ \(card.percentBack(for: earning).percentText)")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         .padding(.horizontal, 14)

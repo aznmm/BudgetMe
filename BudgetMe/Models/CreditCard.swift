@@ -34,6 +34,10 @@ final class CreditCard {
     var showInBestCard: Bool = true
     /// Spending caps you've marked as reached, keyed "rateID|period" so they reset on their own.
     var capsReached: [String] = []
+    /// Whether the card has quarterly 5× categories, or nil to estimate from the card's name.
+    var hasRotatingCategories: Bool? = nil
+    /// Quarters ("2026-Q4") whose rotating categories you've activated with the issuer.
+    var rotatingActivated: [String] = []
     var sortOrder: Int = 0
     var createdAt: Date = Date()
 

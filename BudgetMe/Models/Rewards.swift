@@ -56,6 +56,50 @@ enum SpendCategory: String, CaseIterable, Identifiable, Codable {
     }
 }
 
+/// A Best Card category: a built-in one, or one you named, like "Amazon".
+enum CategoryChoice: Hashable, Identifiable {
+    case builtIn(SpendCategory)
+    case custom(String)
+
+    var id: String {
+        switch self {
+        case .builtIn(let category): "builtin-\(category.rawValue)"
+        case .custom(let name): "custom-\(name.lowercased())"
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .builtIn(let category): category.title
+        case .custom(let name): name
+        }
+    }
+
+    /// For use mid-sentence: "dining", but "Amazon" keeps its capital.
+    var inlineTitle: String {
+        switch self {
+        case .builtIn(let category): category.title.lowercased()
+        case .custom(let name): name
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .builtIn(let category): category.symbol
+        case .custom: "tag.fill"
+        }
+    }
+
+    /// Every custom category name used by these rates, once each, alphabetically.
+    static func customNames(in rates: [RewardRate]) -> [String] {
+        var names: [String] = []
+        for name in rates.compactMap(\.customCategory) where !names.contains(where: { $0.caseInsensitiveCompare(name) == .orderedSame }) {
+            names.append(name)
+        }
+        return names.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+}
+
 /// One earning rate on a card, e.g. 4× on dining or 5× on travel booked through the issuer.
 struct RewardRate: Codable, Hashable, Identifiable {
     var id: UUID = UUID()
@@ -70,9 +114,32 @@ struct RewardRate: Codable, Hashable, Identifiable {
     var capPeriod: Cadence? = nil
     /// The quarter ("2026-Q4") a rotating category earns in, or nil when it always earns.
     var rotatingQuarter: String? = nil
+    /// A category you named, like "Amazon". When set, the rate earns only there and `category` is ignored.
+    var customCategory: String? = nil
+
+    var choice: CategoryChoice {
+        customCategory.map { CategoryChoice.custom($0) } ?? .builtIn(category)
+    }
 
     var label: String {
-        note.isEmpty ? category.title : note
+        note.isEmpty ? choice.title : note
+    }
+
+    var symbol: String { choice.symbol }
+
+    /// The card's base rate on everything else.
+    var isEverydayRate: Bool {
+        customCategory == nil && category == .everythingElse
+    }
+
+    /// Whether a purchase in `choice` earns this rate. Custom rates never count toward built-in categories.
+    func applies(to choice: CategoryChoice) -> Bool {
+        switch choice {
+        case .builtIn(let spend):
+            return customCategory == nil && spend.isCovered(by: category)
+        case .custom(let name):
+            return customCategory?.caseInsensitiveCompare(name) == .orderedSame
+        }
     }
 
     /// False for a rotating category whose quarter is over.
@@ -104,7 +171,7 @@ struct RewardRate: Codable, Hashable, Identifiable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, category, multiplier, note, viaPortal, capAmount, capPeriod, rotatingQuarter
+        case id, category, multiplier, note, viaPortal, capAmount, capPeriod, rotatingQuarter, customCategory
     }
 
     /// Guesses from the details whether a rate saved before the portal switch existed is a portal rate.
@@ -126,6 +193,7 @@ extension RewardRate {
         capAmount = try container.decodeIfPresent(Double.self, forKey: .capAmount)
         capPeriod = try container.decodeIfPresent(Cadence.self, forKey: .capPeriod)
         rotatingQuarter = try container.decodeIfPresent(String.self, forKey: .rotatingQuarter)
+        customCategory = try container.decodeIfPresent(String.self, forKey: .customCategory)
     }
 }
 
@@ -254,22 +322,82 @@ extension CreditCard {
     /// The best rate this card earns on `category`, falling back to its everything-else rate.
     /// With `includePortal` off, rates that need a travel portal booking are left out. Rates whose
     /// cap is reached or whose rotating quarter is over are skipped too.
-    func earning(for category: SpendCategory, includePortal: Bool = true, on date: Date = .now) -> Earning? {
+    func earning(for choice: CategoryChoice, includePortal: Bool = true, on date: Date = .now) -> Earning? {
         let rates = rewardRates.filter { rate in
             (includePortal || !rate.viaPortal) && rate.isActive(on: date) && !isCapReached(rate, on: date)
         }
         let matches = rates
-            .filter { category.isCovered(by: $0.category) }
+            .filter { $0.applies(to: choice) }
             .sorted { $0.multiplier > $1.multiplier }
         if let best = matches.first {
-            return Earning(multiplier: best.multiplier, details: matches, isBaseRate: category == .everythingElse)
+            return Earning(multiplier: best.multiplier, details: matches, isBaseRate: choice == .builtIn(.everythingElse))
         }
-        if let base = rates.first(where: { $0.category == .everythingElse }) {
+        if let base = rates.first(where: \.isEverydayRate) {
             return Earning(multiplier: base.multiplier, details: [base], isBaseRate: true)
         }
         // Nearly every card earns at least 1× on everything, so assume that rather than leave the card out.
         guard !rewardRates.isEmpty else { return nil }
         let assumed = RewardRate(id: CreditCard.assumedBaseRateID, category: .everythingElse, multiplier: 1, note: "Everyday rate (assumed 1×)")
         return Earning(multiplier: 1, details: [assumed], isBaseRate: true, isAssumed: true)
+    }
+}
+
+// MARK: - Rotating categories
+
+extension CreditCard {
+    /// Whether the card has rotating 5× categories: what you set, or an estimate from its name.
+    var effectiveHasRotatingCategories: Bool {
+        hasRotatingCategories ?? CreditCard.estimatedHasRotatingCategories(name: name, issuer: issuer)
+    }
+
+    /// Chase Freedom Flex and Discover it have quarterly 5× categories.
+    static func estimatedHasRotatingCategories(name: String, issuer: String) -> Bool {
+        let text = "\(name) \(issuer)".lowercased()
+        return text.contains("flex") || text.contains("discover")
+    }
+
+    /// This quarter's rotating category rates.
+    func rotatingRates(on date: Date = .now) -> [RewardRate] {
+        let quarter = Cadence.quarterly.periodKey(for: date)
+        return rewardRates.filter { $0.rotatingQuarter == quarter }
+    }
+
+    /// True when the card has rotating categories but none are set for this quarter.
+    func needsRotatingCategories(on date: Date = .now) -> Bool {
+        effectiveHasRotatingCategories && rotatingRates(on: date).isEmpty
+    }
+
+    func isRotatingActivated(on date: Date = .now) -> Bool {
+        rotatingActivated.contains(Cadence.quarterly.periodKey(for: date))
+    }
+
+    func setRotatingActivated(_ activated: Bool, on date: Date = .now) {
+        let quarter = Cadence.quarterly.periodKey(for: date)
+        if activated {
+            if !rotatingActivated.contains(quarter) { rotatingActivated.append(quarter) }
+        } else {
+            rotatingActivated.removeAll { $0 == quarter }
+        }
+    }
+
+    /// Replaces the rotating categories with `choices` for this quarter. Earlier quarters' picks are cleared out.
+    func setRotatingCategories(_ choices: [CategoryChoice], multiplier: Double, cap: Double?, on date: Date = .now) {
+        let quarter = Cadence.quarterly.periodKey(for: date)
+        let quarterLabel = Cadence.quarterly.periodLabel(for: date)
+        var rates = rewardRates.filter { $0.rotatingQuarter == nil }
+        for choice in choices {
+            var rate = RewardRate(category: .everythingElse, multiplier: multiplier, note: "\(choice.title), rotating \(quarterLabel)")
+            switch choice {
+            case .builtIn(let category): rate.category = category
+            case .custom(let name): rate.customCategory = name
+            }
+            rate.rotatingQuarter = quarter
+            if let cap {
+                rate.capAmount = cap
+                rate.capPeriod = .quarterly
+            }
+            rates.append(rate)
+        }
+        rewardRates = rates
     }
 }

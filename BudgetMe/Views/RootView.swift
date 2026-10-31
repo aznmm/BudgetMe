@@ -41,6 +41,11 @@ struct RootView: View {
         }
     }
 
+    /// Cards that need new rotating categories each quarter.
+    private var rotatingCards: [String] {
+        cards.filter(\.effectiveHasRotatingCategories).map(\.name).sorted()
+    }
+
     private var options: ReminderPlan.Options {
         ReminderPlan.Options(daysBefore: reminderDaysBefore, minuteOfDay: reminderMinuteOfDay, alsoOnDueDate: remindOnDueDate)
     }
@@ -51,11 +56,11 @@ struct RootView: View {
             .map { "\($0.id):\($0.daysBefore ?? -1):\($0.paidPeriods.sorted().joined(separator: ","))" }
             .sorted()
             .joined(separator: "|")
-        return "\(remindersEnabled)-\(reminderDaysBefore)-\(reminderMinuteOfDay)-\(remindOnDueDate)-\(state)"
+        return "\(remindersEnabled)-\(reminderDaysBefore)-\(reminderMinuteOfDay)-\(remindOnDueDate)-\(rotatingCards)-\(state)"
     }
 
     private func rescheduleReminders() {
-        ReminderScheduler.reschedule(payments, enabled: remindersEnabled, options: options)
+        ReminderScheduler.reschedule(payments, rotatingCards: rotatingCards, enabled: remindersEnabled, options: options)
     }
 }
 

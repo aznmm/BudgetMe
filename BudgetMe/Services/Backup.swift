@@ -29,6 +29,8 @@ struct Backup: Codable {
         var network: String?
         var showInBestCard: Bool?
         var capsReached: [String]?
+        var hasRotatingCategories: Bool?
+        var rotatingActivated: [String]?
         var sortOrder: Int
         var createdAt: Date
         var credits: [CreditRecord]
@@ -118,6 +120,8 @@ extension Backup {
             card.networkRaw = record.network
             card.showInBestCard = record.showInBestCard ?? true
             card.capsReached = record.capsReached ?? []
+            card.hasRotatingCategories = record.hasRotatingCategories
+            card.rotatingActivated = record.rotatingActivated ?? []
             card.createdAt = record.createdAt
             for credit in record.credits {
                 let benefit = credit.insert(into: context)
@@ -157,6 +161,8 @@ extension Backup.CardRecord {
             network: card.networkRaw,
             showInBestCard: card.showInBestCard,
             capsReached: card.capsReached,
+            hasRotatingCategories: card.hasRotatingCategories,
+            rotatingActivated: card.rotatingActivated,
             sortOrder: card.sortOrder,
             createdAt: card.createdAt,
             credits: card.sortedBenefits.map { Backup.CreditRecord($0) }
