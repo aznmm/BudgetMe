@@ -29,7 +29,7 @@ With a free Apple ID the app works for 7 days at a time. Run it from Xcode again
 
 With a free Apple ID the app stops opening after 7 days. Your Mac can renew it for you over Wi-Fi:
 
-1. In Xcode, open **Window → Devices and Simulators**, select your iPhone and tick **Connect via network**.
+1. Run the app on your iPhone from Xcode once with the cable. After that, Xcode 15 and later reach the iPhone over Wi-Fi on their own whenever both are on the same network; there's no setting to turn on.
 2. In Terminal, in the BudgetMe folder, run `scripts/renew-iphone.sh` once. If macOS asks whether `codesign` can use a key, click **Always Allow**.
 3. Run `scripts/auto-renew.sh on`.
 
