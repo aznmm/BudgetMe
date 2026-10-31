@@ -222,6 +222,10 @@ struct Earning {
     let isBaseRate: Bool
     /// The card has no everyday rate saved, so 1× is assumed.
     var isAssumed = false
+    /// This quarter's rotating category, when it adds to the rate.
+    var rotatingBonus: RewardRate? = nil
+    /// How much the rotating category adds: its rate minus the card's everyday rate.
+    var rotatingExtra: Double = 0
 }
 
 /// The payment network, which decides where a card is accepted.
@@ -326,19 +330,43 @@ extension CreditCard {
         let rates = rewardRates.filter { rate in
             (includePortal || !rate.viaPortal) && rate.isActive(on: date) && !isCapReached(rate, on: date)
         }
-        let matches = rates
+        let regular = rates.filter { $0.rotatingQuarter == nil }
+        let matches = regular
             .filter { $0.applies(to: choice) }
             .sorted { $0.multiplier > $1.multiplier }
+        let everyday = regular.first(where: \.isEverydayRate)
+
+        var earning: Earning
         if let best = matches.first {
-            return Earning(multiplier: best.multiplier, details: matches, isBaseRate: choice == .builtIn(.everythingElse))
+            earning = Earning(multiplier: best.multiplier, details: matches, isBaseRate: choice == .builtIn(.everythingElse))
+        } else if let everyday {
+            earning = Earning(multiplier: everyday.multiplier, details: [everyday], isBaseRate: true)
+        } else if !rewardRates.isEmpty {
+            // Nearly every card earns at least 1× on everything, so assume that rather than leave the card out.
+            let assumed = RewardRate(id: CreditCard.assumedBaseRateID, category: .everythingElse, multiplier: 1, note: "Everyday rate (assumed 1×)")
+            earning = Earning(multiplier: 1, details: [assumed], isBaseRate: true, isAssumed: true)
+        } else {
+            return nil
         }
-        if let base = rates.first(where: \.isEverydayRate) {
-            return Earning(multiplier: base.multiplier, details: [base], isBaseRate: true)
+
+        // A rotating category adds on top of what the purchase already earns. Its rate already includes the
+        // everyday rate (Chase's 5% is 1% plus 4% extra), so only the extra is added: 3× dining becomes 7×.
+        let everydayMultiplier = everyday?.multiplier ?? 1
+        let bonus = rates
+            .filter { $0.rotatingQuarter != nil && $0.applies(to: choice) }
+            .max { $0.multiplier < $1.multiplier }
+        if let bonus, bonus.multiplier > everydayMultiplier {
+            let extra = bonus.multiplier - everydayMultiplier
+            earning = Earning(
+                multiplier: earning.multiplier + extra,
+                details: earning.details,
+                isBaseRate: false,
+                isAssumed: earning.isAssumed,
+                rotatingBonus: bonus,
+                rotatingExtra: extra
+            )
         }
-        // Nearly every card earns at least 1× on everything, so assume that rather than leave the card out.
-        guard !rewardRates.isEmpty else { return nil }
-        let assumed = RewardRate(id: CreditCard.assumedBaseRateID, category: .everythingElse, multiplier: 1, note: "Everyday rate (assumed 1×)")
-        return Earning(multiplier: 1, details: [assumed], isBaseRate: true, isAssumed: true)
+        return earning
     }
 }
 

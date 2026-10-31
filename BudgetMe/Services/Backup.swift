@@ -31,6 +31,9 @@ struct Backup: Codable {
         var capsReached: [String]?
         var hasRotatingCategories: Bool?
         var rotatingActivated: [String]?
+        var design: String?
+        /// The card's picture as JPEG, if you added one.
+        var imageData: Data?
         var sortOrder: Int
         var createdAt: Date
         var credits: [CreditRecord]
@@ -122,6 +125,8 @@ extension Backup {
             card.capsReached = record.capsReached ?? []
             card.hasRotatingCategories = record.hasRotatingCategories
             card.rotatingActivated = record.rotatingActivated ?? []
+            card.designRaw = record.design
+            card.cardImageData = record.imageData
             card.createdAt = record.createdAt
             for credit in record.credits {
                 let benefit = credit.insert(into: context)
@@ -163,6 +168,8 @@ extension Backup.CardRecord {
             capsReached: card.capsReached,
             hasRotatingCategories: card.hasRotatingCategories,
             rotatingActivated: card.rotatingActivated,
+            design: card.designRaw,
+            imageData: card.cardImageData,
             sortOrder: card.sortOrder,
             createdAt: card.createdAt,
             credits: card.sortedBenefits.map { Backup.CreditRecord($0) }

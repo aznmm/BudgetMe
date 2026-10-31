@@ -38,6 +38,10 @@ final class CreditCard {
     var hasRotatingCategories: Bool? = nil
     /// Quarters ("2026-Q4") whose rotating categories you've activated with the issuer.
     var rotatingActivated: [String] = []
+    /// A `CardDesign` raw value, or nil to use one that suits the finish.
+    var designRaw: String? = nil
+    /// Your own picture of the card's front, as JPEG. Kept outside the main store because it's large.
+    @Attribute(.externalStorage) var cardImageData: Data? = nil
     var sortOrder: Int = 0
     var createdAt: Date = Date()
 

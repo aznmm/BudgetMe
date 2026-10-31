@@ -36,7 +36,7 @@ struct RotatingCategoriesView: View {
                 } header: {
                     Text("Categories")
                 } footer: {
-                    Text("Pick everything that earns \(multiplier.multiplierText) this quarter.")
+                    Text("Pick everything that earns \(multiplier.multiplierText) this quarter. The bonus adds to what a category already earns: the \(multiplier.multiplierText) includes the card's 1× everyday rate, so 3× dining becomes \((multiplier + 2).multiplierText), not \((multiplier + 3).multiplierText).")
                 }
 
                 Section {
