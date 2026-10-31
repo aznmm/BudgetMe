@@ -403,7 +403,7 @@ private struct RunnerUpRow: View {
 
     var body: some View {
         HStack(spacing: 14) {
-            MiniCard(theme: card.theme)
+            MiniCard(card: card)
             VStack(alignment: .leading, spacing: 2) {
                 Text(card.name)
                     .font(.body.weight(.medium))

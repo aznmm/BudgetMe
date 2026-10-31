@@ -96,7 +96,7 @@ struct CreditHistoryView: View {
                         ForEach(rows) { benefit in CreditYearRow(benefit: benefit, year: year) }
                     } header: {
                         HStack(spacing: 8) {
-                            MiniCard(theme: card.theme)
+                            MiniCard(card: card)
                                 .scaleEffect(0.7)
                                 .frame(width: 30, height: 20)
                             Text(card.name)

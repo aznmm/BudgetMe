@@ -280,7 +280,7 @@ struct DueRow: View {
 
             switch item.source {
             case .card(let card):
-                MiniCard(theme: card.theme)
+                MiniCard(card: card)
             case .bill(let bill):
                 MiniCard(theme: .graphite, symbol: bill.symbol)
             }

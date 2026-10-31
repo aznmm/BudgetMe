@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import PhotosUI
 
 /// Add or edit a card. Changes apply when you tap Save.
 struct CardEditView: View {
@@ -38,15 +39,30 @@ struct CardEditView: View {
     @State private var newCategoryName = ""
     @State private var didLoad = false
 
+    /// The design you picked, or nil to use one that suits the finish.
+    @State private var pickedDesign: CardDesign?
+    @State private var cardImageData: Data?
+    @State private var photoItem: PhotosPickerItem?
+
     @AppStorage(SettingsKey.reminderDaysBefore) private var defaultReminderDays = 2
 
     var body: some View {
         NavigationStack {
             Form {
                 Section {
-                    CardTile(name: name, issuer: issuer, lastFour: lastFour, dueDay: dueDay, theme: theme)
-                        .padding(.vertical, 4)
-                        .animation(.snappy, value: theme)
+                    CardTile(
+                        name: name,
+                        issuer: issuer,
+                        lastFour: lastFour,
+                        dueDay: dueDay,
+                        theme: theme,
+                        design: shownDesign,
+                        network: networkBinding.wrappedValue,
+                        imageData: cardImageData
+                    )
+                    .padding(.vertical, 4)
+                    .animation(.snappy, value: theme)
+                    .animation(.snappy, value: shownDesign)
                 }
                 .listRowInsets(EdgeInsets())
                 .listRowBackground(Color.clear)
@@ -54,30 +70,80 @@ struct CardEditView: View {
                 Section {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 12) {
-                            ForEach(CardTheme.allCases) { option in
+                            ForEach(CardDesign.drawn) { option in
                                 Button {
-                                    theme = option
+                                    withAnimation(.snappy) { pickedDesign = option }
                                 } label: {
-                                    Circle()
-                                        .fill(option.gradient)
-                                        .frame(width: 34, height: 34)
-                                        .overlay {
-                                            Circle()
-                                                .strokeBorder(Color.primary, lineWidth: theme == option ? 2.5 : 0)
-                                                .padding(-4)
-                                        }
-                                        .padding(4)
+                                    VStack(spacing: 6) {
+                                        CardArt(design: option, theme: theme)
+                                            .frame(width: 76, height: 48)
+                                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                            .overlay {
+                                                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                                                    .strokeBorder(Color.primary, lineWidth: shownDesign == option ? 2.5 : 0)
+                                                    .padding(-4)
+                                            }
+                                            .padding(4)
+                                        Text(option.title)
+                                            .font(.caption)
+                                            .foregroundStyle(shownDesign == option ? Color.primary : Color.secondary)
+                                    }
                                 }
                                 .buttonStyle(.plain)
-                                .accessibilityLabel(option.title)
                             }
                         }
                         .padding(.vertical, 6)
                         .padding(.horizontal, 2)
                     }
-                    .sensoryFeedback(.selection, trigger: theme)
+                    .sensoryFeedback(.selection, trigger: shownDesign)
+
+                    if shownDesign != .photo {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 12) {
+                                ForEach(CardTheme.allCases) { option in
+                                    Button {
+                                        theme = option
+                                    } label: {
+                                        Circle()
+                                            .fill(option.gradient)
+                                            .frame(width: 34, height: 34)
+                                            .overlay {
+                                                Circle()
+                                                    .strokeBorder(Color.primary, lineWidth: theme == option ? 2.5 : 0)
+                                                    .padding(-4)
+                                            }
+                                            .padding(4)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .accessibilityLabel(option.title)
+                                }
+                            }
+                            .padding(.vertical, 6)
+                            .padding(.horizontal, 2)
+                        }
+                        .sensoryFeedback(.selection, trigger: theme)
+                    }
+
+                    PhotosPicker(selection: $photoItem, matching: .images) {
+                        Label(photoButtonTitle, systemImage: "photo.on.rectangle")
+                    }
+                    if cardImageData != nil {
+                        if shownDesign != .photo {
+                            Button("Show the Picture", systemImage: "photo") {
+                                withAnimation(.snappy) { pickedDesign = .photo }
+                            }
+                        }
+                        Button("Remove Picture", systemImage: "trash", role: .destructive) {
+                            withAnimation(.snappy) {
+                                cardImageData = nil
+                                if pickedDesign == .photo { pickedDesign = nil }
+                            }
+                        }
+                    }
                 } header: {
-                    Text("Finish")
+                    Text("Design")
+                } footer: {
+                    Text("For the real look, save your card's picture from the issuer's website, or take a photo of the front, and pick it here. Avoid pictures that show your full card number.")
                 }
 
                 Section("Card") {
@@ -216,6 +282,20 @@ struct CardEditView: View {
                 }
             }
             .onAppear(perform: load)
+            .onChange(of: photoItem) {
+                guard let item = photoItem else { return }
+                Task {
+                    if let data = try? await item.loadTransferable(type: Data.self),
+                       let image = UIImage(data: data),
+                       let prepared = CardImageCache.prepare(image) {
+                        withAnimation(.snappy) {
+                            cardImageData = prepared
+                            pickedDesign = .photo
+                        }
+                    }
+                    photoItem = nil
+                }
+            }
             .alert(
                 "New Category",
                 isPresented: Binding(get: { namingRateID != nil }, set: { if !$0 { namingRateID = nil } })
@@ -257,6 +337,16 @@ struct CardEditView: View {
                 hasCustomPointValue = true
             }
         )
+    }
+
+    private var photoButtonTitle: String {
+        cardImageData == nil ? "Use a Picture of the Card" : "Choose a Different Picture"
+    }
+
+    /// What the card face shows: your pick, or a design that suits the finish. A photo needs a picture.
+    private var shownDesign: CardDesign {
+        if pickedDesign == .photo && cardImageData == nil { return CardDesign.suggested(for: theme) }
+        return pickedDesign ?? CardDesign.suggested(for: theme)
     }
 
     private var networkBinding: Binding<CardNetwork?> {
@@ -336,6 +426,8 @@ struct CardEditView: View {
         issuer = card.issuer
         lastFour = card.lastFour
         theme = card.theme
+        pickedDesign = card.designRaw.flatMap(CardDesign.init(rawValue:))
+        cardImageData = card.cardImageData
         dueDay = card.dueDay
         rates = card.rewardRates
         perks = card.perks
@@ -354,6 +446,8 @@ struct CardEditView: View {
         target.issuer = issuer.trimmingCharacters(in: .whitespaces)
         target.lastFour = lastFour
         target.theme = theme
+        target.designRaw = (pickedDesign == .photo && cardImageData == nil) ? nil : pickedDesign?.rawValue
+        target.cardImageData = cardImageData
         target.dueDay = dueDay
         target.reminderDaysBefore = hasCustomReminder ? reminderDays : nil
         target.pointValue = hasCustomPointValue ? pointValue : nil

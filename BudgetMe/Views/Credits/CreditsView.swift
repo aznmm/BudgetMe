@@ -87,7 +87,7 @@ struct CreditsView: View {
                         ForEach(rows) { benefit in BenefitRow(benefit: benefit, onEdit: { editing = $0 }) }
                     } header: {
                         HStack(spacing: 8) {
-                            MiniCard(theme: card.theme)
+                            MiniCard(card: card)
                                 .scaleEffect(0.7)
                                 .frame(width: 30, height: 20)
                             Text(card.name)
