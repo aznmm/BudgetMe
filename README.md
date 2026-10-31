@@ -25,6 +25,16 @@ You'll need a Mac with **Xcode 16 or later**. The app runs on iOS 17 or later.
 
 With a free Apple ID the app works for 7 days at a time. Run it from Xcode again to renew it; your data stays put.
 
+### Renewing it automatically
+
+With a free Apple ID the app stops opening after 7 days. Your Mac can renew it for you over Wi-Fi:
+
+1. In Xcode, open **Window → Devices and Simulators**, select your iPhone and tick **Connect via network**.
+2. In Terminal, in the BudgetMe folder, run `scripts/renew-iphone.sh` once. If macOS asks whether `codesign` can use a key, click **Always Allow**.
+3. Run `scripts/auto-renew.sh on`.
+
+Every evening at 8 PM (or the next time the Mac wakes up) it renews the app if it's been 5 days or more, as long as the Mac is on and the iPhone is on the same Wi-Fi. You get a Mac notification either way. `scripts/auto-renew.sh status` shows the latest attempts and `scripts/auto-renew.sh off` stops it. A paid Apple Developer Program membership makes each install last a year instead.
+
 ### Turning on iCloud sync (paid developer account)
 
 The project is set up for on-device storage so it builds with a free account. To sync across devices with a paid **Apple Developer Program** membership:
