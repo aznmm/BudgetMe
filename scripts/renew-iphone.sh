@@ -64,6 +64,18 @@ PY
 fi
 [[ -n "$DEVICE" ]] || fail "No iPhone found. Plug it in once and run BudgetMe on it from Xcode."
 
+# Xcode keeps reusing a cached signing profile until the day it expires, so a day-5 build would only
+# last two more days. Removing BudgetMe's cached profile makes Xcode issue a fresh 7-day one.
+BUNDLE_ID="$(sed -n 's/.*PRODUCT_BUNDLE_IDENTIFIER = \(.*\);/\1/p' "$REPO/BudgetMe.xcodeproj/project.pbxproj" | head -1)"
+for profile in "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"/*.mobileprovision; do
+    [[ -f "$profile" && -n "$BUNDLE_ID" ]] || continue
+    if security cms -D -i "$profile" 2>/dev/null \
+        | plutil -extract Entitlements.application-identifier raw -o - - 2>/dev/null \
+        | grep -q "\.$BUNDLE_ID\$"; then
+        rm -f "$profile"
+    fi
+done
+
 log "Building BudgetMe…"
 xcodebuild \
     -project "$REPO/BudgetMe.xcodeproj" \
@@ -81,5 +93,13 @@ xcrun devicectl device install app --device "$DEVICE" "$APP" \
     || fail "Couldn't reach your iPhone. Keep it unlocked on the same Wi-Fi as this Mac; it'll try again tomorrow."
 
 date +%s > "$STAMP"
-log "Renewed. Good for another 7 days."
-notify "Renewed on your iPhone. Good for another 7 days."
+expires="$(security cms -D -i "$APP/embedded.mobileprovision" 2>/dev/null \
+    | plutil -extract ExpirationDate raw -o - - 2>/dev/null)" || expires=""
+if [[ -n "$expires" ]]; then
+    expires="$(date -r "$(TZ=UTC date -j -f '%Y-%m-%dT%H:%M:%SZ' "$expires" +%s)" '+%A %-d %B at %-I:%M %p')"
+    log "Renewed. Works until $expires."
+    notify "Renewed on your iPhone. Works until $expires."
+else
+    log "Renewed. Good for another 7 days."
+    notify "Renewed on your iPhone. Good for another 7 days."
+fi
